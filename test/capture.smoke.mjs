@@ -64,6 +64,25 @@ check(
   digestTurn([user('объясни'), assistant([text(LONG)]), user('ясно')], { project: 'hrm1', requireChange: false }) !== null
 )
 
+console.log('\n== разбор хода целиком (turn/end) ==')
+const whole = digestTurn(
+  [
+    user('доведи выбор региона'),
+    assistant([call('edit', { file_path: 'ObjectModule.bsl' }), text(LONG)])
+  ],
+  { project: 'hrm1', turn: 'current' }
+)
+check('ход целиком разобран без завершающей реплики', whole !== null)
+check('запрос найден внутри хода', (whole?.content ?? '').includes('Запрос: доведи выбор региона'))
+check('тот же ход в режиме previous даёт запись', digestTurn(
+  [
+    user('доведи выбор региона'),
+    assistant([call('edit', { file_path: 'ObjectModule.bsl' }), text(LONG)]),
+    user('спасибо')
+  ],
+  { project: 'hrm1' }
+) !== null)
+
 console.log('\n== аргументы CLI ==')
 const args = saveArgs(record)
 check('подкоманда save', args[0] === 'save')

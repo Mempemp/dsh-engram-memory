@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
-import { apply, projectOf } from '../lib/index.js'
+import { apply, inject, projectOf } from '../lib/index.js'
 import { createStore, openReadOnly } from './_engram-fixture.mjs'
 
 const contexts = []
@@ -43,14 +43,29 @@ function pointAt(dir) {
 function makeContext(config) {
   const listeners = new Map()
   const warnings = []
+  const sections = []
   const ctx = {
     logger: { warn: (message) => warnings.push(message) },
+    systemPrompt: {
+      section: (spec) => {
+        sections.push(spec)
+        return { dispose: () => {} }
+      }
+    },
     on: (event, handler) => {
-      listeners.set(event, handler)
+      const registered = listeners.get(event)
+      if (registered === undefined) listeners.set(event, [handler])
+      else registered.push(handler)
     }
   }
   apply(ctx, config)
-  const context = { preStep: listeners.get('agent/pre-step'), dispose: listeners.get('dispose'), warnings }
+  const context = {
+    preStep: listeners.get('agent/pre-step')?.[0],
+    fire: (event, ...args) => (listeners.get(event) ?? []).forEach((handler) => handler(...args)),
+    dispose: listeners.get('dispose')?.[0],
+    sections,
+    warnings
+  }
   contexts.push(context)
   return context
 }
@@ -257,6 +272,86 @@ if (!existsSync(engramBinary)) {
       check('заголовок — из итога хода', String(row.title).startsWith('Разобрал выбор региона'), String(row.title))
       check('в записи есть файл хода', String(row.content).includes('ObjectModule.bsl'))
     }
+  }
+}
+
+console.log('\n== правила памяти доезжают до модели ==')
+check('плагин требует службу промпта (иначе ctx.systemPrompt молча нет)', inject.includes('systemPrompt'), JSON.stringify(inject))
+const guided = makeContext({})
+const guidance = guided.sections.find((spec) => typeof spec.text === 'string' && spec.text.includes('Память проекта (engram)'))
+check('секция промпта зарегистрирована', guidance !== undefined)
+check('в правилах есть уровни памяти', (guidance?.text ?? '').includes('`global`'), (guidance?.text ?? '').slice(0, 80))
+check('секция не подменяет промпт целиком', guidance?.complete !== true)
+
+console.log('\n== ход записывается на turn/end (а не только на следующем вопросе) ==')
+const turnDir = join(root, 'TurnEnd')
+mkdirSync(turnDir, { recursive: true })
+pointAt(turnDir)
+if (!existsSync(engramBinary)) {
+  console.log('  skip бинарь engram не найден — проверка записи по turn/end пропущена')
+} else {
+  const boot = spawnSync(
+    engramBinary,
+    ['save', 'База хода создана', 'Служебная запись.', '--project', 'turnend'],
+    { env: { ...process.env, ENGRAM_DATA_DIR: turnDir }, encoding: 'utf8' }
+  )
+  if (boot.status !== 0) {
+    console.log(`  skip engram не создал базу: ${String(boot.stderr).trim().slice(0, 160)}`)
+  } else {
+    const turning = makeContext({ engramPath: engramBinary })
+    const turnSummary = 'Довёл выбор региона до конца: регион берётся по времени регистрации, при равных датах — ' +
+      'последняя запись. Поправил ObjectModule.bsl, прогнал проверку на двух записях с одной датой и убедился, ' +
+      'что пустой результат больше не ломает шаблон.'
+    const session = { id: 'session-turn', header: { cwd: turnDir, origin: 'main' } }
+    turning.fire('session/event', session, { type: 'user/message', data: userMessage('доведи выбор региона') })
+    turning.fire('session/event', session, {
+      type: 'assistant/message',
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'tool-call', id: 'c1', name: 'edit', arguments: JSON.stringify({ file_path: 'ObjectModule.bsl' }) },
+            { type: 'text', text: turnSummary }
+          ]
+        }
+      }
+    })
+    turning.fire('session/event', session, { type: 'turn/end', data: { turn: 1 } })
+
+    let row = null
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        const probe = openReadOnly(join(turnDir, 'engram.db'))
+        row = probe
+          .prepare("SELECT title FROM observations WHERE project = 'turnend' AND title LIKE 'Довёл%' ORDER BY id DESC LIMIT 1")
+          .get()
+        probe.close()
+      } catch {
+        row = null
+      }
+      if (row !== undefined && row !== null) break
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    check('ход записан сразу по turn/end', row !== undefined && row !== null, 'записи нет')
+    // Повторная запись того же хода — та же тема, значит engram обновит, а не удвоит.
+    turning.fire('session/event', session, { type: 'user/message', data: userMessage('доведи выбор региона') })
+    turning.fire('session/event', session, {
+      type: 'assistant/message',
+      data: { turn: 2, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: turnSummary }] } }
+    })
+    turning.fire('session/event', session, { type: 'turn/end', data: { turn: 2 } })
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    let sameTopic = 0
+    try {
+      const probe = openReadOnly(join(turnDir, 'engram.db'))
+      sameTopic = probe.prepare("SELECT count(*) AS n FROM observations WHERE project = 'turnend' AND topic_key LIKE '%довёл%'").get().n
+      probe.close()
+    } catch {
+      sameTopic = -1
+    }
+    check('работа про тему не размножается записями', sameTopic <= 1, `записей с темой: ${sameTopic}`)
   }
 }
 
