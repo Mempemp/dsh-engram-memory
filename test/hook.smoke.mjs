@@ -111,6 +111,39 @@ const off = makeContext({ enabled: false })
 check('enabled: false отключает плагин целиком', off.preStep === undefined)
 check('падений не залогировано', (tiny.warnings.length === 0), tiny.warnings.join('; '))
 
+console.log('\n== проект: регистр и имя из сессий engram ==')
+const pixelDir = join(root, 'PixerArtist')
+mkdirSync(pixelDir, { recursive: true })
+createStore(
+  [{ title: 'Обзор репозитория', content: 'Пайплайн агента-художника, Aseprite MCP', project: 'pixerartist' }],
+  { dir: pixelDir }
+)
+pointAt(pixelDir)
+const pixel = makeContext({})
+const pixelDecision = await call(pixel.preStep, payloadFor({ id: 'session-pixel', cwd: pixelDir, origin: 'main' }), {
+  kind: 'enter',
+  messages: [userMessage('что за репо pixerartist?')]
+})
+check('проект с заглавными буквами в имени папки находится', pixelDecision.messages.length === 2, String(pixelDecision.messages.length))
+
+const mappedDir = join(root, 'Mapped')
+mkdirSync(mappedDir, { recursive: true })
+createStore(
+  [{ title: 'Запись под именем engram', content: 'Проект назван иначе, чем папка воркспейса', project: 'engram-name' }],
+  { dir: mappedDir, sessions: [{ id: 's-map', project: 'engram-name', directory: mappedDir }] }
+)
+pointAt(mappedDir)
+const mapped = makeContext({})
+const mappedDecision = await call(mapped.preStep, payloadFor({ id: 'session-map', cwd: mappedDir, origin: 'main' }), {
+  kind: 'enter',
+  messages: [userMessage('что там с проектом?')]
+})
+check(
+  'имя проекта берётся из сессий engram, а не из имени папки',
+  mappedDecision.messages.length === 2 && mappedDecision.messages[0].content[0].text.includes('Запись под именем engram'),
+  mappedDecision.messages[0]?.content?.[0]?.text?.slice(0, 80) ?? `сообщений: ${mappedDecision.messages.length}`
+)
+
 console.log('\n== освобождение стора ==')
 let disposeOk = true
 for (const context of contexts) {
