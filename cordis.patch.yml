@@ -1,0 +1,4 @@
+# dsh-engram-bridge bundle patch: подключает плагин в композицию профиля.
+- insert:
+    - id: engram-bridge
+      name: 'dsh-engram-bridge'
