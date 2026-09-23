@@ -1,12 +1,13 @@
 // Проверка хост-половины: плагин поднимает pre-step, инжектит в бюджет,
 // не повторяет одну запись в рамках сессии и молча пропускает ход, когда
 // памяти нет или включить нечего.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import { apply, projectOf } from '../lib/index.js'
-import { createStore } from './_engram-fixture.mjs'
+import { createStore, openReadOnly } from './_engram-fixture.mjs'
 
 const contexts = []
 let failures = 0
@@ -165,6 +166,99 @@ const scopedText = scopedDecision.messages[0]?.content?.[0]?.text ?? ''
 check('своя проектная запись инжектится', scopedText.includes('Своя проектная запись'), scopedText.slice(0, 120))
 check('чужая проектная запись не инжектится', !scopedText.includes('Чужая проектная запись'))
 check('запись уровня global приходит с пометкой', scopedText.includes('·общее') && scopedText.includes('Общее правило'))
+
+console.log('\n== общий слой держит место в бюджете ==')
+const priorityDir = join(root, 'Priority')
+mkdirSync(priorityDir, { recursive: true })
+createStore(
+  [
+    {
+      title: 'Правило проекта №1',
+      content: 'Регион регион регион регион регион регион регион регион регион регион регион регион',
+      project: 'priority'
+    },
+    {
+      title: 'Правило проекта №2',
+      content: 'Регион регион регион регион регион регион регион регион регион регион регион регион',
+      project: 'priority'
+    },
+    { title: 'Общая конвенция', content: 'Правило про регион для всех проектов', project: 'other', scope: 'global' }
+  ],
+  { dir: priorityDir, sessions: [{ id: 's-priority', project: 'priority', directory: priorityDir }] }
+)
+pointAt(priorityDir)
+const priority = makeContext({})
+const priorityDecision = await call(
+  priority.preStep,
+  payloadFor({ id: 'session-priority', cwd: priorityDir, origin: 'main' }),
+  { kind: 'enter', messages: [userMessage('что у нас по региону?')] }
+)
+const priorityText = priorityDecision.messages[0]?.content?.[0]?.text ?? ''
+check('общая запись попала в инъекцию несмотря на ранг', priorityText.includes('·общее') && priorityText.includes('Общая конвенция'), priorityText.slice(0, 140))
+check('проектная запись тоже на месте', priorityText.includes('Правило проекта'), priorityText.slice(0, 140))
+check('больше двух записей не приходит', priorityText.split('\n- [').length - 1 === 2, String(priorityText.split('\n- [').length - 1))
+
+console.log('\n== автосохранение хода ==')
+const captureDir = join(root, 'Captured')
+mkdirSync(captureDir, { recursive: true })
+pointAt(captureDir)
+const engramBinary = process.env.ENGRAM_BINARY ??
+  'D:/cursor projects/DSH-1C-deskop-bundle/vendor/engram-mcp/engram.exe'
+if (!existsSync(engramBinary)) {
+  console.log(`  skip бинарь engram не найден (${engramBinary}) — проверка автосохранения пропущена`)
+} else {
+  // Базу создаёт сам engram: фикстура годится для чтения, но её схема не
+  // принимает upsert-записи (в настоящей таблице есть ключи и ограничения).
+  const bootstrap = spawnSync(
+    engramBinary,
+    ['save', 'База проекта создана', 'Служебная запись: база создана engram.', '--project', 'captured'],
+    { env: { ...process.env, ENGRAM_DATA_DIR: captureDir }, encoding: 'utf8' }
+  )
+  if (bootstrap.status !== 0) {
+    console.log(`  skip engram не создал базу: ${String(bootstrap.stderr).trim().slice(0, 160)}`)
+  } else {
+    const capturing = makeContext({ engramPath: engramBinary })
+    const summary = 'Разобрал выбор региона по времени регистрации: МИНИМУМ по дате, при равенстве ' +
+      'берём регион последней записи. Поправил запрос в ObjectModule.bsl, добавил проверку пустого ' +
+      'результата и тестовый пример на две записи с одной датой.'
+    const turn = [
+      { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'поправь выбор региона' }] },
+      {
+        role: 'assistant',
+        source: { kind: 'model' },
+        content: [
+          { type: 'tool-call', id: 'c1', name: 'edit', arguments: JSON.stringify({ file_path: 'ObjectModule.bsl' }) },
+          { type: 'text', text: summary }
+        ]
+      },
+      { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'теперь про другое: как дела с памятью?' }] }
+    ]
+    await call(capturing.preStep, payloadFor({ id: 'session-capture', cwd: captureDir, origin: 'main' }), {
+      kind: 'enter',
+      messages: turn
+    })
+    const dbPath = join(captureDir, 'engram.db')
+    let row = null
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        const probe = openReadOnly(dbPath)
+        row = probe
+          .prepare("SELECT title, content FROM observations WHERE project = 'captured' AND title LIKE 'Разобрал%' ORDER BY id DESC LIMIT 1")
+          .get()
+        probe.close()
+      } catch {
+        row = null
+      }
+      if (row !== undefined && row !== null) break
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    check('запись хода дошла до базы через engram', row !== undefined && row !== null, 'записи с итогом хода нет')
+    if (row !== undefined && row !== null) {
+      check('заголовок — из итога хода', String(row.title).startsWith('Разобрал выбор региона'), String(row.title))
+      check('в записи есть файл хода', String(row.content).includes('ObjectModule.bsl'))
+    }
+  }
+}
 
 console.log('\n== освобождение стора ==')
 let disposeOk = true

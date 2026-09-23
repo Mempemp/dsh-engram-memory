@@ -1,11 +1,11 @@
 {
   "name": "dsh-engram-bridge",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
   "license": "MIT",
-  "description": "Pre-step injection of engram project memory into a DSH turn",
+  "description": "Engram memory in DSH: guidance in system prompt, pre-step recall, automatic capture of finished turns",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
