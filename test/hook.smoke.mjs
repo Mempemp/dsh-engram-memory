@@ -144,6 +144,28 @@ check(
   mappedDecision.messages[0]?.content?.[0]?.text?.slice(0, 80) ?? `сообщений: ${mappedDecision.messages.length}`
 )
 
+console.log('\n== общие записи: чужие проектные не проходят, personal/global проходят ==')
+const scopedDir = join(root, 'Scoped')
+mkdirSync(scopedDir, { recursive: true })
+createStore(
+  [
+    { title: 'Своя проектная запись', content: 'Правило проекта, только для этой папки', project: 'scoped' },
+    { title: 'Чужая проектная запись', content: 'Правило проекта, к этой папке не относится', project: 'scopedx' },
+    { title: 'Общее правило', content: 'Правило, действующее во всех проектах', project: 'scopedx', scope: 'global' }
+  ],
+  { dir: scopedDir, sessions: [{ id: 's-scoped', project: 'scoped', directory: scopedDir }] }
+)
+pointAt(scopedDir)
+const scoped = makeContext({})
+const scopedDecision = await call(scoped.preStep, payloadFor({ id: 'session-scoped', cwd: scopedDir, origin: 'main' }), {
+  kind: 'enter',
+  messages: [userMessage('какие правила проекта тут?')]
+})
+const scopedText = scopedDecision.messages[0]?.content?.[0]?.text ?? ''
+check('своя проектная запись инжектится', scopedText.includes('Своя проектная запись'), scopedText.slice(0, 120))
+check('чужая проектная запись не инжектится', !scopedText.includes('Чужая проектная запись'))
+check('запись уровня global приходит с пометкой', scopedText.includes('·общее') && scopedText.includes('Общее правило'))
+
 console.log('\n== освобождение стора ==')
 let disposeOk = true
 for (const context of contexts) {
