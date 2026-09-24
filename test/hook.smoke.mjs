@@ -335,23 +335,52 @@ if (!existsSync(engramBinary)) {
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
     check('ход записан сразу по turn/end', row !== undefined && row !== null, 'записи нет')
-    // Повторная запись того же хода — та же тема, значит engram обновит, а не удвоит.
+
+    const countTopic = () => {
+      try {
+        const probe = openReadOnly(join(turnDir, 'engram.db'))
+        const stats = probe
+          .prepare("SELECT count(*) AS rows, max(revision_count) AS revisions FROM observations WHERE project = 'turnend' AND topic_key LIKE '%довёл%'")
+          .get()
+        probe.close()
+        return { rows: stats?.rows ?? 0, revisions: stats?.revisions ?? 0 }
+      } catch {
+        return { rows: -1, revisions: -1 }
+      }
+    }
+
+    // Тот же ход повторился (второй раз) — плагин не должен звать запись снова:
+    // работа про одну тему запоминается один раз за сессию.
     turning.fire('session/event', session, { type: 'user/message', data: userMessage('доведи выбор региона') })
     turning.fire('session/event', session, {
       type: 'assistant/message',
       data: { turn: 2, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: turnSummary }] } }
     })
     turning.fire('session/event', session, { type: 'turn/end', data: { turn: 2 } })
-    await new Promise((resolve) => setTimeout(resolve, 1200))
-    let sameTopic = 0
-    try {
-      const probe = openReadOnly(join(turnDir, 'engram.db'))
-      sameTopic = probe.prepare("SELECT count(*) AS n FROM observations WHERE project = 'turnend' AND topic_key LIKE '%довёл%'").get().n
-      probe.close()
-    } catch {
-      sameTopic = -1
-    }
-    check('работа про тему не размножается записями', sameTopic <= 1, `записей с темой: ${sameTopic}`)
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    const repeated = countTopic()
+    check('повторный turn/end не пишет запись второй раз', repeated.rows === 1 && repeated.revisions === 1, JSON.stringify(repeated))
+
+    // Страховочный pre-step про ТОТ ЖЕ ход: раз turn/end его уже записал, второй
+    // записи быть не должно — ни новой строки, ни новой ревизии.
+    await call(turning.preStep, payloadFor({ id: 'session-turn', cwd: turnDir, origin: 'main' }), {
+      kind: 'enter',
+      messages: [
+        userMessage('доведи выбор региона'),
+        {
+          role: 'assistant',
+          source: { kind: 'model' },
+          content: [
+            { type: 'tool-call', id: 'c1', name: 'edit', arguments: JSON.stringify({ file_path: 'ObjectModule.bsl' }) },
+            { type: 'text', text: turnSummary }
+          ]
+        },
+        userMessage('теперь другое')
+      ]
+    })
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    const afterStep = countTopic()
+    check('pre-step про уже записанный ход вторую запись не делает', afterStep.rows === 1 && afterStep.revisions === 1, JSON.stringify(afterStep))
   }
 }
 
