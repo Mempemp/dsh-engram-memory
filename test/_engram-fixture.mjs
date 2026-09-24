@@ -22,11 +22,11 @@ export function createStore(rows, { dir = mkdtempSync(join(tmpdir(), 'engram-fix
   )
   db.exec('CREATE TABLE sessions (id TEXT, project TEXT, directory TEXT, started_at TEXT, ended_at TEXT, summary TEXT)')
   const insert = db.prepare(
-    'INSERT INTO observations (title, content, project, scope, type, created_at, updated_at, pinned) ' +
-      "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), 0)"
+    'INSERT INTO observations (title, content, project, scope, type, revision_count, created_at, updated_at, pinned) ' +
+      "VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), 0)"
   )
   for (const row of rows) {
-    insert.run(row.title, row.content, row.project ?? 'demo', row.scope ?? 'project', row.type ?? 'discovery')
+    insert.run(row.title, row.content, row.project ?? 'demo', row.scope ?? 'project', row.type ?? 'discovery', row.revisions ?? 1)
   }
   const insertSession = db.prepare('INSERT INTO sessions (id, project, directory, started_at) VALUES (?, ?, ?, ?)')
   for (const session of sessions) {

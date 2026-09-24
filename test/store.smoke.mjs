@@ -152,6 +152,21 @@ if (exe === undefined) {
   rmSync(realDir, { recursive: true, force: true })
 }
 
+console.log('\n== подсказка об обобщении ==')
+const ripeRow = { id: 9, title: 'Диаризация: выбор движка', content: 'Итог: pyannote по умолчанию', scope: 'project', revision_count: 4 }
+const ripeText = formatInjection([ripeRow], {})
+check('часто обновляемая тема получает подсказку обобщить', (ripeText ?? '').includes('сохрани вывод одной записью'), ripeText)
+check('подсказка ссылается на саму запись', (ripeText ?? '').includes('- [9]'), ripeText)
+check('в подсказке назван topic_key', (ripeText ?? '').includes('topic_key'))
+const quietText = formatInjection([{ ...ripeRow, revision_count: 1 }], {})
+check('запись без истории подсказки не получает', !(quietText ?? '').includes('сохрани вывод'), quietText)
+const earlyText = formatInjection([{ ...ripeRow, revision_count: 2 }], {})
+check('двух обновлений для подсказки мало', !(earlyText ?? '').includes('сохрани вывод'))
+check('порог настраивается', (formatInjection([{ ...ripeRow, revision_count: 2 }], { cueMinRevisions: 2 }) ?? '').includes('сохрани вывод'))
+check('подсказку можно выключить', !(formatInjection([ripeRow], { cue: false }) ?? '').includes('сохрани вывод'))
+const tightText = formatInjection([ripeRow], { budget: 120 })
+check('подсказка не вылезает за бюджет', tightText === null || tightText.length <= 120, String(tightText?.length))
+
 rmSync(fixture.dir, { recursive: true, force: true })
 console.log(failures === 0 ? '\nвсе проверки прошли' : `\nпровалено проверок: ${failures}`)
 process.exit(failures === 0 ? 0 : 1)
