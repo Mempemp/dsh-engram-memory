@@ -4,7 +4,15 @@
 import { rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { createStore, openReadOnly } from './_engram-fixture.mjs'
-import { createJob, panelStatistics, parseSourceIds, resolveRoute, sendJson, stateHandler } from '../lib/panel.js'
+import {
+  createJob,
+  listProjects,
+  parseSourceIds,
+  resolveRoute,
+  scopeStatistics,
+  sendJson,
+  stateHandler
+} from '../lib/panel.js'
 
 let failures = 0
 const check = (title, ok, extra = '') => {
@@ -26,9 +34,9 @@ check('в источники попадают только числа', [...pars
 console.log('\n== какая модель обрабатывает ==')
 check('настройка плагина важнее всего', resolveRoute({ override: { provider: 'a', model: 'b' }, defaultSelection: { provider: 'c', model: 'd' } })?.provider === 'a')
 check('иначе — модель по умолчанию из настроек DSH', resolveRoute({ defaultSelection: { provider: 'deepseek', model: 'deepseek-v4-flash' } })?.model === 'deepseek-v4-flash')
-check('модель сессии — запасной вариант', resolveRoute({ sessionRoute: { provider: 's', model: 's1' } })?.model === 's1')
-check('модель по умолчанию важнее модели сессии', resolveRoute({ defaultSelection: { provider: 'd', model: 'd1' }, sessionRoute: { provider: 's', model: 's1' } })?.model === 'd1')
-check('пустая настройка плагина не считается выбором', resolveRoute({ override: { provider: '', model: '' }, sessionRoute: { provider: 's', model: 's1' } })?.model === 's1')
+check('пустая настройка плагина не считается выбором', resolveRoute({ override: { provider: '', model: '' }, defaultSelection: { provider: 'd', model: 'd1' } })?.model === 'd1')
+check('пустая модель по умолчанию — не выбор', resolveRoute({ defaultSelection: { provider: '', model: '' } }) === undefined)
+check('маршрут разговора в решении не участвует', resolveRoute({ sessionRoute: { provider: 's', model: 's1' } }) === undefined)
 check('без модели вообще — ничего', resolveRoute({}) === undefined)
 
 const fixture = createStore(
@@ -50,14 +58,34 @@ writable.close()
 const store = openReadOnly(fixture.path)
 
 console.log('\n== статистика ==')
-const stats = panelStatistics(store, 'demo')
+const stats = scopeStatistics(store, { projects: ['demo'] })
 check('сырые заметки считаются без выводов, помеченных и удалённых', stats.total === 3, JSON.stringify(stats))
 check('сведёнными считаются только те, на которые ссылается карточка', stats.processed === 2 && stats.unprocessed === 1, JSON.stringify(stats))
-check('карточки считаются отдельно', stats.cards === 1, String(stats.cards))
+check('карточки считаются отдельно', stats.projects[0].cards === 1, String(stats.projects[0].cards))
 check('полоска — доля сведённых', Math.abs(stats.bar - 2 / 3) < 0.001, String(stats.bar))
-check('чужой проект не подмешивается', panelStatistics(store, 'other').total === 1)
-check('неизвестный проект — нули', panelStatistics(store, 'нет-такого').total === 0)
-check('без проекта — нули, без падения', panelStatistics(store, null).total === 0)
+check('чужой проект не подмешивается', scopeStatistics(store, { projects: ['other'] }).total === 1)
+check('неизвестный проект — нули', scopeStatistics(store, { projects: ['нет-такого'] }).total === 0)
+check('без базы — нули, без падения', scopeStatistics(null, { projects: ['demo'] }).total === 0)
+
+console.log('\n== учёт сведённого сквозной по базе ==')
+{
+  const shared = createStore([
+    { title: 'Заметка проекта a', content: longText('разбор хода'), project: 'proj-a', type: 'discovery' },
+    { title: 'Заметка проекта b', content: longText('разбор хода'), project: 'proj-b', type: 'discovery' },
+    { title: 'Общий вывод', content: `${longText('вывод')}\n\nИсточники: #1, #2`, project: 'proj-a', type: 'pattern' }
+  ])
+  const sharedStore = openReadOnly(shared.path)
+  const scope = scopeStatistics(sharedStore)
+  check('проекты берутся из базы, а не из открытых окон', listProjects(sharedStore).join(',') === 'proj-a,proj-b', listProjects(sharedStore).join(','))
+  check('карточка общего слоя помечает заметки чужих проектов', scope.projects.every((bucket) => bucket.unprocessed === 0), JSON.stringify(scope.projects))
+  check('счёт по проектам складывается в общий', scope.total === 2 && scope.processed === 2 && scope.cards === 1, JSON.stringify(scope))
+  check('один проект можно посчитать отдельно', scopeStatistics(sharedStore, { projects: ['proj-b'] }).total === 1, JSON.stringify(scopeStatistics(sharedStore, { projects: ['proj-b'] })))
+  check('неизвестный проект в списке даёт нули', scopeStatistics(sharedStore, { projects: ['нет-такого'] }).total === 0)
+  check('пустой список проектов — нули', scopeStatistics(sharedStore, { projects: [] }).total === 0)
+  check('без базы статистика не падает', scopeStatistics(null, { projects: ['proj-a'] }).total === 0 && listProjects(null).length === 0)
+  sharedStore.close?.()
+  rmSync(shared.dir, { recursive: true, force: true })
+}
 
 console.log('\n== состояние прохода ==')
 {
@@ -106,6 +134,31 @@ console.log('\n== состояние прохода ==')
   await pending
   check('отменённый проход не остаётся идущим', job.status().running === false && /отменена/.test(String(job.status().error)), JSON.stringify(job.status()))
   check('повторная отмена — тихий отказ', job.cancel().cancelled === false)
+}
+{
+  const job = createJob(async (signal, report) => {
+    report({ pass: 1, passes: 3, processed: 20, total: 60 })
+    report({ pass: 2, passes: 3, processed: 40, total: 60 })
+    return { status: 'ok', report: 'готово', notes: 40, cards: [], saved: [] }
+  })
+  await job.start()
+  check('прогресс прохода виден интерфейсу', job.status().progress?.pass === 2 && job.status().progress?.total === 60, JSON.stringify(job.status().progress))
+  check('новый проход начинается с чистого прогресса', job.status().report === 'готово')
+}
+{
+  let seen = null
+  const job = createJob(async (signal, report, projects) => {
+    seen = projects
+    return { status: 'ok', report: 'готово' }
+  })
+  await job.start(['hrm1'])
+  check('сужение до проекта доезжает до прохода', Array.isArray(seen) && seen[0] === 'hrm1', JSON.stringify(seen))
+}
+{
+  const job = createJob(async () => ({ status: 'no-cards', notes: 3, cards: [], saved: [], stopped: 'no-cards' }), { log: () => {} })
+  await job.start()
+  check('причина остановки объяснена словами', job.status().ok === false && /карточки/.test(String(job.status().error)), String(job.status().error))
+  check('признак остановки сохранён', job.status().stopped === 'no-cards', String(job.status().stopped))
 }
 
 console.log('\n== маршруты ==')

@@ -1,6 +1,6 @@
 {
   "name": "dsh-engram-memory",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -38,6 +38,6 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/store.smoke.mjs && node test/capture.smoke.mjs && node test/hook.smoke.mjs && node test/mcp-setup.smoke.mjs && node test/consolidate.smoke.mjs && node test/panel.smoke.mjs && node test/client.smoke.mjs"
+    "test": "node test/store.smoke.mjs && node test/capture.smoke.mjs && node test/hook.smoke.mjs && node test/mcp-setup.smoke.mjs && node test/consolidate.smoke.mjs && node test/panel.smoke.mjs && node test/client.smoke.mjs && node test/hygiene.smoke.mjs"
   }
 }

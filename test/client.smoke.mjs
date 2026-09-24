@@ -44,7 +44,7 @@ function makeReact(values) {
 }
 
 const fakeRequire = (name) => {
-  if (name === 'react') return makeReact([null, null, false, 0])
+  if (name === 'react') return makeReact([null, null, false, 0, ''])
   if (name === 'react/jsx-runtime') return { jsx, jsxs }
   return {}
 }
@@ -109,16 +109,42 @@ const barWidth = (tree) => {
   })
   return width
 }
+const selects = (tree) => {
+  const list = []
+  walk(tree, (node) => {
+    if (node.type === 'select') list.push(node)
+  })
+  return list
+}
 
 // ── рендер: необработанные заметки ───────────────────────────────────────────
 const stateWithWork = {
   ok: true,
-  project: 'demo',
   workspace: 'D:/demo',
-  notes: { total: 12, processed: 5, unprocessed: 7, cards: 2, bar: 5 / 12 },
+  projects: [
+    { project: 'hrm1', total: 40, processed: 35, unprocessed: 5, cards: 3, bar: 35 / 40 },
+    { project: 'demo', total: 12, processed: 5, unprocessed: 7, cards: 2, bar: 5 / 12 }
+  ],
+  notes: { total: 52, processed: 40, unprocessed: 12, cards: 5, bar: 40 / 52 },
+  estimate: {
+    planned: 12,
+    passes: 3,
+    maxPasses: 3,
+    capped: true,
+    perPassNotes: 20,
+    perPassTokens: 4200,
+    tokens: 12600,
+    charsPerToken: 3,
+    projects: [{ project: 'demo', unprocessed: 7 }]
+  },
   model: { provider: 'ollama', model: 'qwen3-30b', reasoningEffort: 'off' },
   mcp: { declared: true, harnessVersion: '2.0.0', packageVersion: '2.1.0', needsRestart: true },
-  job: { running: false, error: null, report: 'Обработано 7 заметок → 2 карточки.', saved: [{ title: 'Диаризация: выбор движка', sources: [1, 2] }] }
+  job: {
+    running: false,
+    error: null,
+    report: 'Сведено 12 из 12 заметок → 5 карточк(и) за 3 прохода.\nПроекты: demo — 7, hrm1 — 5',
+    saved: [{ title: 'Диаризация: выбор движка', sources: [1, 2] }]
+  }
 }
 
 /** Компонент берём из регистрации, хуки подставляем на каждый рендер заново. */
@@ -133,38 +159,76 @@ const renderWith = (state) => {
       }
     }
   }
-  loaded.factory((name) => (name === 'react' ? makeReact([state, null, false, 0]) : name === 'react/jsx-runtime' ? { jsx, jsxs } : {})).apply(ctx)
+  loaded.factory((name) => (name === 'react' ? makeReact([state, null, false, 0, '']) : name === 'react/jsx-runtime' ? { jsx, jsxs } : {})).apply(ctx)
   return registrationLocal()
 }
 
 const tree = renderWith(stateWithWork)
 const text = texts(tree)
 check('кнопка названа «Обработать заметки»', text.includes('Обработать заметки'), text.slice(0, 200))
-check('видно, сколько заметок не обработано', text.includes('7') && text.includes('из 12 заметок ещё не сведены в выводы'), text)
-check('карточек-выводов указано число', text.includes('карточек-выводов: 2'), text)
-check('полоска заполнена по доле сведённых', barWidth(tree) === '41.7%', String(barWidth(tree)))
-check('отчёт последнего прохода виден', text.includes('Обработано 7 заметок → 2 карточки.'), text)
+check('видно, сколько заметок не обработано', text.includes('12') && text.includes('из 52 заметок ещё не сведены в выводы'), text)
+check('карточек-выводов указано число', text.includes('карточек-выводов: 5'), text)
+check('полоска заполнена по доле сведённых во всех проектах', barWidth(tree) === '76.9%', String(barWidth(tree)))
+check('отчёт последнего прохода виден', text.includes('Сведено 12 из 12 заметок → 5 карточк(и) за 3 прохода.'), text)
+check('многострочный отчёт читается строками', text.includes('Проекты: demo — 7, hrm1 — 5'), text)
 check('источники карточки показаны', text.includes('Диаризация: выбор движка ← #1, #2'), text)
 check('состояние MCP названо явно', text.includes('MCP-сервер') && text.includes('объявлен'), text)
-check('проект назван там, где кнопка', text.includes('Обрабатываем заметки проекта') && text.includes('demo'), text)
-check('сказано, что кнопка работает по одному проекту', text.includes('Одна кнопка обрабатывает один проект'), text)
+check('проекты перечислены с числами', text.includes('hrm1') && text.includes('7 из 12 ещё не сведены'), text)
+check('сказано, что очередь берётся из базы', text.includes('Проекты берутся из базы'), text)
+check('цена нажатия показана до нажатия', text.includes('Будет проходов: 3') && text.includes('12 600 токенов на входе'), text)
+check('вкладка не показывает сводку гигиены: человеку нужны очередь и кнопка, а не термины', text.includes('Гигиена:') === false && text.includes('усвоено выводами') === false, text.slice(0, 300))
+check('предел проходов объяснён', text.includes('остаток обрабатывается следующим нажатием'), text)
+check('рабочий каталог назван', text.includes('Последний рабочий каталог: D:/demo'), text)
+check('выбор одного проекта есть, и по умолчанию — все', selects(tree).length === 1 && texts(selects(tree)[0]).includes('все проекты'), texts(selects(tree)[0]))
+check('в выборе перечислены проекты очереди', texts(selects(tree)[0]).includes('hrm1') && texts(selects(tree)[0]).includes('demo'), texts(selects(tree)[0]))
 check('модель обработки показана', text.includes('ollama / qwen3-30b'), text)
 check('расхождение бинаря объяснено', text.includes('обновится после перезапуска'), text)
-check('сказано, зачем нужен MCP', text.includes('MCP нужен модели'), text)
+check('сказано, зачем нужен MCP', text.includes('MCP обязателен'), text)
 check('упомянута команда для тех, кто ей пользуется', text.includes('/memory-consolidate'), text)
 check('кнопка доступна, когда есть что обрабатывать', buttons(tree).every((button) => button.props.disabled !== true))
 
+// ── рендер: проход идёт ──────────────────────────────────────────────────────
+const runningTree = renderWith({
+  ...stateWithWork,
+  estimate: null,
+  job: {
+    running: true,
+    startedAt: new Date(Date.now() - 5000).toISOString(),
+    progress: { pass: 2, passes: 3, processed: 14, total: 19, left: 5, cards: 3 },
+    error: null,
+    report: null,
+    saved: []
+  }
+})
+const runningText = texts(runningTree)
+check('во время прохода видно, какой он по счёту и сколько сведено', runningText.includes('проход 2 из 3, сведено 14 из 19'), runningText)
+check('во время прохода есть отмена', buttons(runningTree).some((button) => button.props.children === 'Отменить'), runningText)
+check('кнопка обработки занята и подписана', buttons(runningTree).some((button) => button.props.disabled === true && button.props.children === 'Обрабатываю…'))
+check('выбор проекта во время прохода заблокирован', selects(runningTree)[0].props.disabled === true)
+
 // ── рендер: всё обработано ───────────────────────────────────────────────────
-const doneTree = renderWith({ ...stateWithWork, notes: { total: 12, processed: 12, unprocessed: 0, cards: 4, bar: 1 }, job: { running: false, error: null, report: null, saved: [] } })
+const doneTree = renderWith({ ...stateWithWork, notes: { total: 12, processed: 12, unprocessed: 0, cards: 4, bar: 1 }, projects: [], job: { running: false, error: null, report: null, saved: [] } })
 const doneText = texts(doneTree)
 check('при нуле необработанных сказано прямо', doneText.includes('все сведены в выводы'), doneText)
+check('пустая очередь названа пустой', doneText.includes('обрабатывать нечего') && doneText.includes('очередь пуста'), doneText)
 check('и кнопка заблокирована', buttons(doneTree).some((button) => button.props.disabled === true && button.props.title === 'Все заметки уже сведены в выводы'))
 
 // ── рендер: заметок нет ──────────────────────────────────────────────────────
-const emptyTree = renderWith({ ok: true, project: 'demo', workspace: '', notes: { total: 0, processed: 0, unprocessed: 0, cards: 0, bar: 0 }, model: null, mcp: { declared: false }, job: { running: false, error: null, report: null, saved: [] } })
-check('пустая память объяснена', texts(emptyTree).includes('обрабатывать нечего'), texts(emptyTree))
+const emptyTree = renderWith({
+  ok: true,
+  workspace: '',
+  projects: [],
+  notes: { total: 0, processed: 0, unprocessed: 0, cards: 0, bar: 0 },
+  estimate: { planned: 0, passes: 0, maxPasses: 3, capped: false, perPassNotes: 0, perPassTokens: 0, tokens: 0, charsPerToken: 3, projects: [] },
+  model: null,
+  mcp: { declared: false },
+  job: { running: false, error: null, report: null, saved: [] }
+})
+check('пустая память объяснена', texts(emptyTree).includes('заметок в базе нет'), texts(emptyTree))
 check('необъявленный MCP назван честно', texts(emptyTree).includes('не объявлен'), texts(emptyTree))
+check('про необъявленный MCP есть предупреждение', texts(emptyTree).includes('MCP-сервер не объявлен') && texts(emptyTree).includes('общий слой наполнять нечем'), texts(emptyTree))
 check('если модель не выбрана — сказано прямо', texts(emptyTree).includes('не выбрана — задайте модель по умолчанию'), texts(emptyTree))
+check('без несведённых заметок цена не выдумывается', texts(emptyTree).includes('Несведённых заметок нет.'), texts(emptyTree))
 
 // ── рендер: ошибка прохода ───────────────────────────────────────────────────
 const errorTree = renderWith({ ...stateWithWork, job: { running: false, error: 'провайдер недоступен', report: null, saved: [] } })

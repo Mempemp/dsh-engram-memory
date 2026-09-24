@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
-import { apply, captureEnv, inject, projectOf } from '../lib/index.js'
+import { apply, captureEnv, inject, parseConsolidateInput, projectOf } from '../lib/index.js'
 import { formatInjection } from '../lib/engram-store.js'
 import { createStore, openReadOnly } from './_engram-fixture.mjs'
 
@@ -449,21 +449,39 @@ console.log('\n== кнопка «Обработать заметки» ==')
 {
   pointAt(workspace)
   const commanded = makeContext({})
-  const command = commanded.commands[0]
-  check('команда объявлена интерфейсу', commanded.commands.length === 1, `объявлено ${commanded.commands.length}`)
+  const byName = (name) => commanded.commands.find((item) => item.name === name)
+  const command = byName('memory-consolidate')
+  check('команды объявлены интерфейсу', command !== undefined && commanded.commands.length === 3, `объявлено ${commanded.commands.length}`)
   check('имя команды — memory-consolidate', command?.name === 'memory-consolidate', String(command?.name))
   check('в описании то же название, что на кнопке', /Обработать заметки/.test(String(command?.description)), String(command?.description))
   check('подсказка ввода объясняет аргументы', typeof command?.input?.hint === 'string' && command.input.hint !== '', String(command?.input?.hint))
   check('обработчик — функция', typeof command?.handler === 'function')
   check('обязательный список служб не расширен', JSON.stringify(inject) === '["systemPrompt"]', inject.join(','))
-  const noProject = await command.handler({ rawInput: '', agent: {}, signal: undefined })
-  check('без проекта команда просит его назвать', noProject?.kind === 'error' && String(noProject.text).includes('проект'), JSON.stringify(noProject))
+  const hygiene = byName('memory-hygiene')
+  const cleanup = byName('memory-cleanup')
+  check('гигиена объявлена своими командами', hygiene !== undefined && cleanup !== undefined)
+  check('отчёт гигиены считает по базе', /Усвоено выводами:/.test(String(hygiene?.description)) === false && /состояние памяти/.test(String(hygiene?.description)), String(hygiene?.description))
+  check('уборка обещает мягкое удаление, а не удаление', /мягко/u.test(String(cleanup?.description)) && /жёстк/u.test(String(cleanup?.description)) === false, String(cleanup?.description))
+  const report = await hygiene.handler({})
+  check('отчёт выдаёт числа без модели', report?.kind === 'success' && /Сведены в выводы: \d+/.test(String(report.text)) && /Ждут сведения в выводы: \d+/.test(String(report.text)), JSON.stringify(report))
+  const nothingToClean = await cleanup.handler({})
+  check('когда убирать нечего, уборка так и говорит', nothingToClean?.kind === 'success' && /Убирать нечего|Убрано из обращения/.test(String(nothingToClean.text)), JSON.stringify(nothingToClean))
   const modelLess = makeContext({}, { noDefaultModel: true })
-  const noModel = await modelLess.commands[0].handler({ rawInput: 'demo', agent: {}, signal: undefined })
+  const noModel = await modelLess.commands.find((item) => item.name === 'memory-consolidate').handler({ rawInput: 'demo', agent: {}, signal: undefined })
   check('без модели команда просит задать её в настройках', noModel?.kind === 'error' && String(noModel.text).includes('модель по умолчанию'), JSON.stringify(noModel))
+  const nowhere = await command.handler({ rawInput: 'черновик нет-заметок', agent: {}, signal: undefined })
+  check('без несведённых заметок команда модель не зовёт', nowhere?.kind === 'success' && String(nowhere.text).includes('несведённых заметок нет'), JSON.stringify(nowhere))
   const silent = makeContext({ consolidate: false })
-  check('обработка выключается настройкой', silent.commands.length === 0, `объявлено ${silent.commands.length}`)
+  check('обработка выключается настройкой, гигиена остаётся', silent.commands.length === 2 && silent.commands.every((item) => item.name !== 'memory-consolidate'), `объявлено ${silent.commands.length}`)
 }
+
+console.log('\n== разбор аргументов команды ==')
+check('пустой ввод — все проекты без сужения', JSON.stringify(parseConsolidateInput('')) === JSON.stringify({ dryRun: false, project: null }), JSON.stringify(parseConsolidateInput('')))
+check('имя проекта сужает проход', parseConsolidateInput('hrm1').project === 'hrm1' && parseConsolidateInput('hrm1').dryRun === false)
+check('«черновик» — показ без записи', parseConsolidateInput('черновик').dryRun === true && parseConsolidateInput('черновик').project === null)
+check('«черновик» и проект вместе', parseConsolidateInput('черновик hrm1').dryRun === true && parseConsolidateInput('черновик hrm1').project === 'hrm1', JSON.stringify(parseConsolidateInput('черновик hrm1')))
+check('латинский dry понимается так же', parseConsolidateInput('dry hrm1').dryRun === true && parseConsolidateInput('dry hrm1').project === 'hrm1')
+check('регистр имени проекта не важен', parseConsolidateInput('HRM1').project === 'hrm1', JSON.stringify(parseConsolidateInput('HRM1')))
 
 console.log('\n== вкладка настроек ==')
 {
@@ -487,11 +505,12 @@ console.log('\n== вкладка настроек ==')
     })
   const state = await ask('/state', 'GET')
   check('состояние отдаётся как JSON', state.startsWith('200|application/json'), state.slice(0, 60))
-  check('в статистике виден проект воркспейса', state.includes('"project":"demo"'), state.slice(-200))
+  check('проекты вкладки приходят из базы', /"projects":\[\{"project":"demo"/.test(state), state.slice(-260))
   check('необработанные заметки посчитаны по базе', state.includes('"total":2') && state.includes('"unprocessed":2'), state.slice(-240))
   check('состояние MCP в ответе есть', state.includes('"declared"'), state.slice(-120))
   check('модель обработки взята из настроек, а не из сессии', state.includes('"provider":"test-provider"') && state.includes('"model":"test-model"'), state.slice(-300))
-  check('проект для вкладки назван', state.includes('"project":"demo"'), state.slice(-200))
+  check('цена нажатия посчитана до нажатия', state.includes('"estimate"') && state.includes('"perPassNotes":2'), state.slice(-260))
+  check('предел проходов отдан интерфейсу', state.includes('"maxPasses":3'), state.slice(-160))
   check('проход описан состоянием', state.includes('"running":false'), state.slice(-160))
   const onRun = await ask('/run', 'GET')
   check('запуск по GET отвергается', onRun.startsWith('405'), onRun)
