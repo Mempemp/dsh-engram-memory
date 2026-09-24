@@ -91,6 +91,21 @@ check('проект и уровень явные', args.includes('--project') &&
 check('тема передана (engram обновит запись, а не создаст дубль)', args.includes('--topic') && args.includes(record.topic))
 check('тип передан', args.includes('--type') && args.includes('discovery'))
 
+console.log('\n== заголовок записи ==')
+check(
+  'приветствие не становится заголовком',
+  titleFrom('Привет!\n\nГотовый ассет-пак машин лежит в Projects/old cars и ждёт публикации') ===
+    'Готовый ассет-пак машин лежит в Projects/old cars и ждёт публикации',
+  titleFrom('Привет!\n\nГотовый ассет-пак машин лежит в Projects/old cars и ждёт публикации')
+)
+check(
+  'короткая строка пропускается',
+  titleFrom('Ок\n\nСобрал релизный архив и проверил контрольные суммы') === 'Собрал релизный архив и проверил контрольные суммы'
+)
+check('markdown-акценты вычищены', !titleFrom('**Готовый пак** для `Unity` из 17 спрайтов').includes('*'), titleFrom('**Готовый пак** для `Unity` из 17 спрайтов'))
+check('из одних приветствий берём первую строку', titleFrom('Привет!\nОк') === 'Привет!')
+check('тема не кончается дефисом', !topicFrom('pix', 'я'.repeat(200)).endsWith('-'), topicFrom('pix', 'я'.repeat(200)))
+
 console.log('\n== усечение ==')
 const long = digestTurn(
   [user('длинная работа'), assistant([call('write', { file_path: 'a.bsl' }), text('х'.repeat(5000))])],

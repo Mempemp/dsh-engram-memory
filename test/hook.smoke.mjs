@@ -6,7 +6,8 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
-import { apply, inject, projectOf } from '../lib/index.js'
+import { apply, captureEnv, inject, projectOf } from '../lib/index.js'
+import { formatInjection } from '../lib/engram-store.js'
 import { createStore, openReadOnly } from './_engram-fixture.mjs'
 
 const contexts = []
@@ -85,6 +86,12 @@ check('файл .engram/config.json учитывается', (() => {
 })())
 check('иначе — имя каталога', projectOf(workspace, '') === 'demo', projectOf(workspace, ''))
 check('без cwd проект не выдумывается', projectOf('', '') === null)
+
+console.log('\n== окружение автосохранения ==')
+const spawnEnv = captureEnv('C:/data', { PATH: 'x', ENGRAM_DATA_DIR: 'C:/other' })
+check('данные берутся из каталога плагина', spawnEnv.ENGRAM_DATA_DIR === 'C:/data', spawnEnv.ENGRAM_DATA_DIR)
+check('проверка обновлений выключена (запись не ходит в сеть)', spawnEnv.ENGRAM_NO_UPDATE_CHECK === '1')
+check('остальное окружение сохранено', spawnEnv.PATH === 'x')
 
 console.log('\n== инъекция в ход ==')
 pointAt(workspace)
@@ -274,6 +281,18 @@ if (!existsSync(engramBinary)) {
     }
   }
 }
+
+console.log('\n== строка инъекции показывает итог, а не запрос ==')
+const capturedRow = {
+  id: 42,
+  title: 'Собрал релизный пак машин',
+  scope: 'project',
+  content: 'Запрос: собери пак\n\nИтог: Пак собран, проверены контрольные суммы\n\nФайлы: pack.json'
+}
+const capturedLine = formatInjection([capturedRow], { budget: 1200, topK: 1 }) ?? ''
+check('в инъекции итог, а не запрос', capturedLine.includes('Пак собран') && !capturedLine.includes('Запрос:'), capturedLine)
+const plainLine = formatInjection([{ id: 1, title: 'Заметка', content: 'Первая строка без структуры' }], { budget: 1200, topK: 1 }) ?? ''
+check('обычная запись показывается как раньше', plainLine.includes('Первая строка без структуры'), plainLine)
 
 console.log('\n== правила памяти доезжают до модели ==')
 check('плагин требует службу промпта (иначе ctx.systemPrompt молча нет)', inject.includes('systemPrompt'), JSON.stringify(inject))
