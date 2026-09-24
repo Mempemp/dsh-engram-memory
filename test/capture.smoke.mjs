@@ -60,9 +60,33 @@ const commandOnly = [
 ]
 check('ход с командой тоже сохраняется', digestTurn(commandOnly, { project: 'hrm1' }) !== null)
 check(
-  'при requireChange: false хватает итога',
-  digestTurn([user('объясни'), assistant([text(LONG)]), user('ясно')], { project: 'hrm1', requireChange: false }) !== null
+  'без изменений и без чтения записи нет',
+  digestTurn([user('объясни'), assistant([text(LONG)]), user('ясно')], { project: 'hrm1' }) === null
 )
+
+console.log('\n== исследовательский ход тоже запоминается ==')
+const researchTurn = (count) => [
+  user('посмотри, как устроен пак'),
+  assistant([
+    ...Array.from({ length: count }, (_, index) => call('read', { file_path: `Projects/old cars/file${index}.json` })),
+    text(LONG)
+  ]),
+  user('ясно')
+]
+const studied = digestTurn(researchTurn(3), { project: 'pixerartist' })
+check('три чтения и содержательный итог — запись есть', studied !== null)
+check(
+  'в записи видно, что читали',
+  (studied?.content ?? '').includes('Прочитано:') && (studied?.content ?? '').includes('file0.json'),
+  (studied?.content ?? '').slice(0, 120)
+)
+check('изменённых файлов не приписано', !(studied?.content ?? '').includes('Файлы:'))
+check('двух чтений мало', digestTurn(researchTurn(2), { project: 'pixerartist' }) === null)
+check(
+  'requireChange: true оставляет только правки',
+  digestTurn(researchTurn(3), { project: 'pixerartist', requireChange: true }) === null
+)
+check('research: false выключает разбор', digestTurn(researchTurn(3), { project: 'pixerartist', research: false }) === null)
 
 console.log('\n== разбор хода целиком (turn/end) ==')
 const whole = digestTurn(
@@ -103,7 +127,18 @@ check(
   titleFrom('Ок\n\nСобрал релизный архив и проверил контрольные суммы') === 'Собрал релизный архив и проверил контрольные суммы'
 )
 check('markdown-акценты вычищены', !titleFrom('**Готовый пак** для `Unity` из 17 спрайтов').includes('*'), titleFrom('**Готовый пак** для `Unity` из 17 спрайтов'))
-check('из одних приветствий берём первую строку', titleFrom('Привет!\nОк') === 'Привет!')
+check('короткая строка с числом годится', titleFrom('Фикс 413') === 'Фикс 413', titleFrom('Фикс 413'))
+check('короткая строка с двоеточием годится', titleFrom('Диаризация: выбор') === 'Диаризация: выбор', titleFrom('Диаризация: выбор'))
+check(
+  'междометие пропускается, берём следующую строку',
+  titleFrom('Ок\n\nРазобрал выбор региона и поправил запрос') === 'Разобрал выбор региона и поправил запрос'
+)
+check(
+  'приветствие в начале содержательной строки снимается',
+  titleFrom('Привет! Это готовый ассет-пак машин') === 'Это готовый ассет-пак машин',
+  titleFrom('Привет! Это готовый ассет-пак машин')
+)
+check('из одних междометий берём первую строку', titleFrom('Привет!\nОк') === 'Привет!')
 check('тема не кончается дефисом', !topicFrom('pix', 'я'.repeat(200)).endsWith('-'), topicFrom('pix', 'я'.repeat(200)))
 
 console.log('\n== усечение ==')

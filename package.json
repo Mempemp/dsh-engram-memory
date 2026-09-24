@@ -1,6 +1,6 @@
 {
   "name": "dsh-engram-bridge",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
