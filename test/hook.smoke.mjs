@@ -50,6 +50,7 @@ function makeContext(config) {
   const warnings = []
   const sections = []
   const registered = []
+  const routes = []
   const ctx = {
     logger: { warn: (message) => warnings.push(message), info: () => {} },
     systemPrompt: {
@@ -58,13 +59,28 @@ function makeContext(config) {
         return { dispose: () => {} }
       }
     },
-    // Служба команд: в ней плагин объявляет кнопку обобщения. Заглушка повторяет
+    // Служба команд: в ней плагин объявляет кнопку обработки. Заглушка повторяет
     // контракт DSH — имя, описание, подсказка ввода и обработчик.
     commands: {
       register: (definition) => {
         registered.push(definition)
         return () => {}
       }
+    },
+    // Служба модели нужна только для необязательной регистрации команды и
+    // обработки заметок; в этих проверках её не зовут.
+    llm: { prepareCall: () => {} },
+    // Веб-сервер и воркспейсы — тоже необязательные: без них плагин работает,
+    // просто без вкладки настроек.
+    webServer: {
+      register: (spec) => {
+        routes.push(spec)
+        return () => {}
+      }
+    },
+    workspaceRegistry: { list: () => [{ path: workspace }] },
+    inject: (services, callback) => {
+      if (services.every((service) => ctx[service] !== undefined)) callback(ctx)
     },
     on: (event, handler) => {
       const existing = listeners.get(event)
@@ -79,7 +95,8 @@ function makeContext(config) {
     dispose: listeners.get('dispose')?.[0],
     sections,
     warnings,
-    commands: registered
+    commands: registered,
+    routes
   }
   contexts.push(context)
   return context
@@ -421,22 +438,53 @@ if (!existsSync(engramBinary)) {
   }
 }
 
-console.log('\n== кнопка обобщения ==')
+console.log('\n== кнопка «Обработать заметки» ==')
 {
+  pointAt(workspace)
   const commanded = makeContext({})
   const command = commanded.commands[0]
   check('команда объявлена интерфейсу', commanded.commands.length === 1, `объявлено ${commanded.commands.length}`)
   check('имя команды — memory-consolidate', command?.name === 'memory-consolidate', String(command?.name))
-  check('в описании понятное название процесса', /Обобщить память/.test(String(command?.description)), String(command?.description))
+  check('в описании то же название, что на кнопке', /Обработать заметки/.test(String(command?.description)), String(command?.description))
   check('подсказка ввода объясняет аргументы', typeof command?.input?.hint === 'string' && command.input.hint !== '', String(command?.input?.hint))
   check('обработчик — функция', typeof command?.handler === 'function')
-  check('службы команд и модели потребованы явно', inject.includes('commands') && inject.includes('llm'), inject.join(','))
+  check('обязательный список служб не расширен', JSON.stringify(inject) === '["systemPrompt"]', inject.join(','))
   const noRoute = await command.handler({ rawInput: 'demo', agent: {}, signal: undefined })
   check('без маршрута модели команда честно отказывает', noRoute?.kind === 'error' && String(noRoute.text).includes('маршрут'), JSON.stringify(noRoute))
   const noProject = await command.handler({ rawInput: '', agent: {}, signal: undefined })
   check('без проекта команда просит его назвать', noProject?.kind === 'error' && String(noProject.text).includes('проект'), JSON.stringify(noProject))
   const silent = makeContext({ consolidate: false })
-  check('обобщение выключается настройкой', silent.commands.length === 0, `объявлено ${silent.commands.length}`)
+  check('обработка выключается настройкой', silent.commands.length === 0, `объявлено ${silent.commands.length}`)
+}
+
+console.log('\n== вкладка настроек ==')
+{
+  pointAt(workspace)
+  const panel = makeContext({})
+  const paths = panel.routes.map((route) => `${route.kind}:${route.path}`).join(' ')
+  check('маршруты вкладки объявлены', panel.routes.length === 3, paths)
+  check('состояние, запуск и отмена — своими адресами', ['/engram-memory/state', '/engram-memory/run', '/engram-memory/cancel'].every((path) => paths.includes(path)), paths)
+  check('маршруты точные, без префикса', panel.routes.every((route) => route.kind === 'exact'), paths)
+  const ask = async (suffix, method) =>
+    new Promise((resolve) => {
+      const chunks = []
+      const res = {
+        writeHead: (code, headers) => chunks.push(String(code), String(headers?.['content-type'] ?? '')),
+        end: (text) => {
+          chunks.push(text)
+          resolve(chunks.join('|'))
+        }
+      }
+      panel.routes.find((route) => route.path.endsWith(suffix)).handler({ url: `/engram-memory${suffix}`, method }, res)
+    })
+  const state = await ask('/state', 'GET')
+  check('состояние отдаётся как JSON', state.startsWith('200|application/json'), state.slice(0, 60))
+  check('в статистике виден проект воркспейса', state.includes('"project":"demo"'), state.slice(-200))
+  check('необработанные заметки посчитаны по базе', state.includes('"total":2') && state.includes('"unprocessed":2'), state.slice(-240))
+  check('состояние MCP в ответе есть', state.includes('"declared"'), state.slice(-120))
+  check('проход описан состоянием', state.includes('"running":false'), state.slice(-160))
+  const onRun = await ask('/run', 'GET')
+  check('запуск по GET отвергается', onRun.startsWith('405'), onRun)
 }
 
 console.log('\n== освобождение стора ==')
