@@ -1,4 +1,4 @@
-# dsh-engram-bridge bundle patch: подключает плагин в композицию профиля.
+# dsh-engram-memory bundle patch: подключает плагин в композицию профиля.
 - insert:
-    - id: engram-bridge
-      name: 'dsh-engram-bridge'
+    - id: engram-memory
+      name: 'dsh-engram-memory'

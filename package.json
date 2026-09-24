@@ -1,11 +1,11 @@
 {
-  "name": "dsh-engram-bridge",
-  "version": "0.3.4",
+  "name": "dsh-engram-memory",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
   "license": "MIT",
-  "description": "Engram memory in DSH: guidance in system prompt, pre-step recall, automatic capture of finished turns",
+  "description": "Engram memory for DSH: guidance in the system prompt, pre-step recall, automatic capture — self-contained, with the engram MCP server inside the package",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -13,8 +13,13 @@
   },
   "files": [
     "lib",
+    "mcp",
+    "docs",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "scripts": {
+    "test": "node test/store.smoke.mjs && node test/capture.smoke.mjs && node test/hook.smoke.mjs && node test/mcp-setup.smoke.mjs"
+  }
 }

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Память engram в DSH: как это работает</title>
+<style>
+  :root { --gap: 10px; }
+  body {
+    color: var(--foreground);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.45;
+    margin: 0;
+  }
+  h2 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 22px 0 8px;
+  }
+  h2:first-child { margin-top: 0; }
+  h2 .num {
+    color: var(--muted-foreground);
+    font-weight: 400;
+    margin-right: 6px;
+  }
+  .flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .box {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+    padding: 7px 9px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .box b { display: block; font-weight: 600; margin-bottom: 2px; }
+  .box span { color: var(--muted-foreground); }
+  .box.accent { border-color: var(--accent); }
+  .arrow {
+    align-self: center;
+    color: var(--muted-foreground);
+    font-size: 15px;
+    padding: 0 1px;
+  }
+  .db {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    padding: 10px;
+  }
+  .db .path {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  table { border-collapse: collapse; width: 100%; }
+  th, td {
+    border-top: 1px solid var(--border);
+    padding: 4px 6px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { color: var(--muted-foreground); font-weight: 500; }
+  code {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+  }
+  .side {
+    display: flex;
+    gap: var(--gap);
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .side .box { flex: 1 1 220px; }
+  .note { color: var(--muted-foreground); margin: 6px 0 0; }
+</style>
+</head>
+<body>
+
+<h2><span class="num">1</span>ЧТЕНИЕ — каждый вопрос пользователя (pull, автоматически)</h2>
+<div class="flow">
+  <div class="box"><b>Вопрос пользователя</b><span>последняя реплика хода становится поисковым запросом</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>FTS5 / BM25</b><span>слова от 3 знаков, префиксы + усечённые формы, <code>MATCH any</code>; доли миллисекунды, индексы в том же файле</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Фильтр</b><span>проект воркспейса (COLLATE NOCASE) <b>плюс</b> <code>personal</code>/<code>global</code>; чужие проектные не проходят; удалённые и уже показанные в сессии — тоже</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Отбор 2 записей</b><span>1 место закреплено за общим слоем — он выигрывает слот даже когда по BM25 его обходят проектные</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Бюджет 1200 знаков</b><span>не влезает — запись отбрасывается целиком, а не режется</span></div>
+  <div class="arrow">→</div>
+  <div class="box accent"><b>Сообщение в ход</b><span>перед вопросом, <code>source.plugin = dsh-engram-bridge</code> — модель видит память вместе с вопросом</span></div>
+</div>
+<p class="note">Ход на pre-step: база открыта <b>только на чтение</b>. Сбой любого шага — ход идёт без памяти, без ошибки.</p>
+
+<h2><span class="num">2</span>ЗАПИСЬ — конец хода (push, без модели и без LLM)</h2>
+<div class="flow">
+  <div class="box"><b>События сессии</b><span>реплика пользователя и ответы модели копятся в буфере хода</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b><code>turn/end</code></b><span>ход закончился — самое время его разобрать</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Разбор хода</b><span>запрос + изменённые файлы + команды + прочитанное + итоговый текст. Детерминированно, без ключей и сети</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Триггер</b><span><b>сделал</b> (файлы/команды) <b>или</b> <b>выяснил</b> (≥3 чтения/поиска), и итог ≥200 знаков</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Тема</b><span><code>проект/слаг-заголовка</code> — признак пакета работ</span></div>
+  <div class="arrow">→</div>
+  <div class="box accent"><b>engram save</b><span>асинхронный запуск CLI вне хода; тема уже в сессии — второй раз не пишем</span></div>
+</div>
+<p class="note">Без изменений и без чтения (разговор, объяснение на словах) запись не создаётся. Тот же разбор повторяется на следующем вопросе как страховка — двойной записи нет.</p>
+
+<h2><span class="num">3</span>ХРАНЕНИЕ — один файл SQLite</h2>
+<div class="db">
+  <div class="path">%USERPROFILE%\.engram\engram.db &nbsp;(WAL)</div>
+  <table>
+    <tr><th>Таблица</th><th>Что внутри</th><th>Зачем</th></tr>
+    <tr>
+      <td><code>observations</code></td>
+      <td>заголовок, текст, <code>project</code>, <code>scope</code>, <code>topic_key</code>, <code>revision_count</code>, <code>deleted_at</code>, <code>type</code></td>
+      <td>сами записи; <code>topic_key</code> даёт <b>обновление</b> записи о той же работе вместо дублей (3 записи с одной темой = 1 строка, <code>revision_count 3</code>)</td>
+    </tr>
+    <tr>
+      <td><code>observations_fts</code></td>
+      <td>FTS5 по заголовку, тексту, типу, проекту, теме</td>
+      <td>русский поиск: кириллица индексируется, регистр складывается, префиксы работают</td>
+    </tr>
+    <tr>
+      <td><code>sessions</code></td>
+      <td>сессии engram с каталогом воркспейса</td>
+      <td>по ним плагин узнаёт <b>правильное имя проекта</b> для папки воркспейса — иначе запись уезжала в служебный проект</td>
+    </tr>
+  </table>
+  <div class="side">
+    <div class="box"><b>Пишут двое</b><span>инструменты MCP — когда модель сохраняет сама (19 инструментов); CLI engram — вызов плагина после хода</span></div>
+    <div class="box"><b>Читает один</b><span>плагин, <code>readOnly: true</code> — пишущий процесс один, гонок нет</span></div>
+    <div class="box"><b>Уровни (<code>scope</code>)</b><span><code>project</code> — по умолчанию и всегда у автозаписи; <code>personal</code> — о пользователе; <code>global</code> — конвенции для всех проектов. Общие записи приходят в любом проекте с пометкой <code>·общее</code></span></div>
+  </div>
+</div>
+
+<h2><span class="num">4</span>ПРАВИЛА — единственное, что живёт в системном промпте</h2>
+<div class="flow">
+  <div class="box"><b>Секция промпта</b><span><code>ctx.systemPrompt.section</code>, ~1 КБ: память ведётся сама, когда писать <code>global</code>, когда <code>personal</code>, что не сохранять</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Модель</b><span>знает про память без напоминаний и сама зовёт <code>mem_search</code>/<code>mem_save</code>, когда нужно точнее</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Файлов скиллов нет</b><span>в десктопной сборке каталог скиллов не читается — правила обязаны ехать внутри плагина</span></div>
+</div>
+
+</body>
+</html>

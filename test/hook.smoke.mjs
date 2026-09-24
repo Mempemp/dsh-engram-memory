@@ -41,12 +41,16 @@ function pointAt(dir) {
   process.env.ENGRAM_MCP_CONFIG = configPath
 }
 
+/**
+ * Контекст плагина. `harnessDir` уводим в temp: самодостаточность пакета
+ * раскладывает MCP-половину в харнесс, и тесты не должны трогать настоящий.
+ */
 function makeContext(config) {
   const listeners = new Map()
   const warnings = []
   const sections = []
   const ctx = {
-    logger: { warn: (message) => warnings.push(message) },
+    logger: { warn: (message) => warnings.push(message), info: () => {} },
     systemPrompt: {
       section: (spec) => {
         sections.push(spec)
@@ -59,7 +63,7 @@ function makeContext(config) {
       else registered.push(handler)
     }
   }
-  apply(ctx, config)
+  apply(ctx, { harnessDir: join(root, 'harness'), ...config })
   const context = {
     preStep: listeners.get('agent/pre-step')?.[0],
     fire: (event, ...args) => (listeners.get(event) ?? []).forEach((handler) => handler(...args)),
@@ -103,7 +107,7 @@ const injected = await call(preStep, payloadFor(header), decision)
 check('ход вернулся, а не подменён', injected.kind === 'enter')
 check('добавилось ровно одно сообщение', injected.messages.length === 2, String(injected.messages.length))
 check('сообщение стоит перед репликой пользователя', injected.messages[1] === decision.messages[0])
-check('это сообщение плагина', injected.messages[0].source?.plugin === 'dsh-engram-bridge', JSON.stringify(injected.messages[0].source))
+check('это сообщение плагина', injected.messages[0].source?.plugin === 'dsh-engram-memory', JSON.stringify(injected.messages[0].source))
 check('роль — user', injected.messages[0].role === 'user')
 const text = injected.messages[0].content[0].text
 check('в инъекции нашлась запись про диаризацию', text.includes('Диаризация'), text.slice(0, 120))
@@ -297,10 +301,14 @@ check('обычная запись показывается как раньше'
 console.log('\n== правила памяти доезжают до модели ==')
 check('плагин требует службу промпта (иначе ctx.systemPrompt молча нет)', inject.includes('systemPrompt'), JSON.stringify(inject))
 const guided = makeContext({})
-const guidance = guided.sections.find((spec) => typeof spec.text === 'string' && spec.text.includes('Память проекта (engram)'))
+const guidance = guided.sections.find((spec) => typeof spec.text === 'string' && spec.text.includes('Память (engram)'))
 check('секция промпта зарегистрирована', guidance !== undefined)
 check('в правилах есть уровни памяти', (guidance?.text ?? '').includes('`global`'), (guidance?.text ?? '').slice(0, 80))
 check('секция не подменяет промпт целиком', guidance?.complete !== true)
+check('модели прямо сказано, что общий слой наполняет она', (guidance?.text ?? '').includes('Общий слой наполняешь только ты'))
+check('есть как поднять проектное правило в общий слой', (guidance?.text ?? '').includes('mem_update'))
+check('сказано про секреты', (guidance?.text ?? '').includes('секреты'))
+check('есть правило вытеснения, а не дублирования', (guidance?.text ?? '').includes('вытеснено'))
 
 console.log('\n== ход записывается на turn/end (а не только на следующем вопросе) ==')
 const turnDir = join(root, 'TurnEnd')
