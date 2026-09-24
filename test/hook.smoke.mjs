@@ -49,6 +49,7 @@ function makeContext(config) {
   const listeners = new Map()
   const warnings = []
   const sections = []
+  const registered = []
   const ctx = {
     logger: { warn: (message) => warnings.push(message), info: () => {} },
     systemPrompt: {
@@ -57,10 +58,18 @@ function makeContext(config) {
         return { dispose: () => {} }
       }
     },
+    // Служба команд: в ней плагин объявляет кнопку обобщения. Заглушка повторяет
+    // контракт DSH — имя, описание, подсказка ввода и обработчик.
+    commands: {
+      register: (definition) => {
+        registered.push(definition)
+        return () => {}
+      }
+    },
     on: (event, handler) => {
-      const registered = listeners.get(event)
-      if (registered === undefined) listeners.set(event, [handler])
-      else registered.push(handler)
+      const existing = listeners.get(event)
+      if (existing === undefined) listeners.set(event, [handler])
+      else existing.push(handler)
     }
   }
   apply(ctx, { harnessDir: join(root, 'harness'), ...config })
@@ -69,7 +78,8 @@ function makeContext(config) {
     fire: (event, ...args) => (listeners.get(event) ?? []).forEach((handler) => handler(...args)),
     dispose: listeners.get('dispose')?.[0],
     sections,
-    warnings
+    warnings,
+    commands: registered
   }
   contexts.push(context)
   return context
@@ -409,6 +419,24 @@ if (!existsSync(engramBinary)) {
     const afterStep = countTopic()
     check('pre-step про уже записанный ход вторую запись не делает', afterStep.rows === 1 && afterStep.revisions === 1, JSON.stringify(afterStep))
   }
+}
+
+console.log('\n== кнопка обобщения ==')
+{
+  const commanded = makeContext({})
+  const command = commanded.commands[0]
+  check('команда объявлена интерфейсу', commanded.commands.length === 1, `объявлено ${commanded.commands.length}`)
+  check('имя команды — memory-consolidate', command?.name === 'memory-consolidate', String(command?.name))
+  check('в описании понятное название процесса', /Обобщить память/.test(String(command?.description)), String(command?.description))
+  check('подсказка ввода объясняет аргументы', typeof command?.input?.hint === 'string' && command.input.hint !== '', String(command?.input?.hint))
+  check('обработчик — функция', typeof command?.handler === 'function')
+  check('службы команд и модели потребованы явно', inject.includes('commands') && inject.includes('llm'), inject.join(','))
+  const noRoute = await command.handler({ rawInput: 'demo', agent: {}, signal: undefined })
+  check('без маршрута модели команда честно отказывает', noRoute?.kind === 'error' && String(noRoute.text).includes('маршрут'), JSON.stringify(noRoute))
+  const noProject = await command.handler({ rawInput: '', agent: {}, signal: undefined })
+  check('без проекта команда просит его назвать', noProject?.kind === 'error' && String(noProject.text).includes('проект'), JSON.stringify(noProject))
+  const silent = makeContext({ consolidate: false })
+  check('обобщение выключается настройкой', silent.commands.length === 0, `объявлено ${silent.commands.length}`)
 }
 
 console.log('\n== освобождение стора ==')
