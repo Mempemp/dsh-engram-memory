@@ -116,6 +116,7 @@ const stateWithWork = {
   project: 'demo',
   workspace: 'D:/demo',
   notes: { total: 12, processed: 5, unprocessed: 7, cards: 2, bar: 5 / 12 },
+  model: { provider: 'ollama', model: 'qwen3-30b', reasoningEffort: 'off' },
   mcp: { declared: true, harnessVersion: '2.0.0', packageVersion: '2.1.0', needsRestart: true },
   job: { running: false, error: null, report: 'Обработано 7 заметок → 2 карточки.', saved: [{ title: 'Диаризация: выбор движка', sources: [1, 2] }] }
 }
@@ -145,8 +146,11 @@ check('полоска заполнена по доле сведённых', barW
 check('отчёт последнего прохода виден', text.includes('Обработано 7 заметок → 2 карточки.'), text)
 check('источники карточки показаны', text.includes('Диаризация: выбор движка ← #1, #2'), text)
 check('состояние MCP названо явно', text.includes('MCP-сервер') && text.includes('объявлен'), text)
+check('проект назван там, где кнопка', text.includes('Обрабатываем заметки проекта') && text.includes('demo'), text)
+check('сказано, что кнопка работает по одному проекту', text.includes('Одна кнопка обрабатывает один проект'), text)
+check('модель обработки показана', text.includes('ollama / qwen3-30b'), text)
 check('расхождение бинаря объяснено', text.includes('обновится после перезапуска'), text)
-check('сказано, что память работает и без MCP', text.includes('Память работает и без MCP'), text)
+check('сказано, зачем нужен MCP', text.includes('MCP нужен модели'), text)
 check('упомянута команда для тех, кто ей пользуется', text.includes('/memory-consolidate'), text)
 check('кнопка доступна, когда есть что обрабатывать', buttons(tree).every((button) => button.props.disabled !== true))
 
@@ -157,9 +161,10 @@ check('при нуле необработанных сказано прямо', 
 check('и кнопка заблокирована', buttons(doneTree).some((button) => button.props.disabled === true && button.props.title === 'Все заметки уже сведены в выводы'))
 
 // ── рендер: заметок нет ──────────────────────────────────────────────────────
-const emptyTree = renderWith({ ok: true, project: 'demo', workspace: '', notes: { total: 0, processed: 0, unprocessed: 0, cards: 0, bar: 0 }, mcp: { declared: false }, job: { running: false, error: null, report: null, saved: [] } })
+const emptyTree = renderWith({ ok: true, project: 'demo', workspace: '', notes: { total: 0, processed: 0, unprocessed: 0, cards: 0, bar: 0 }, model: null, mcp: { declared: false }, job: { running: false, error: null, report: null, saved: [] } })
 check('пустая память объяснена', texts(emptyTree).includes('обрабатывать нечего'), texts(emptyTree))
 check('необъявленный MCP назван честно', texts(emptyTree).includes('не объявлен'), texts(emptyTree))
+check('если модель не выбрана — сказано прямо', texts(emptyTree).includes('не выбрана — задайте модель по умолчанию'), texts(emptyTree))
 
 // ── рендер: ошибка прохода ───────────────────────────────────────────────────
 const errorTree = renderWith({ ...stateWithWork, job: { running: false, error: 'провайдер недоступен', report: null, saved: [] } })

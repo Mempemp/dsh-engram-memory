@@ -45,7 +45,7 @@ function pointAt(dir) {
  * Контекст плагина. `harnessDir` уводим в temp: самодостаточность пакета
  * раскладывает MCP-половину в харнесс, и тесты не должны трогать настоящий.
  */
-function makeContext(config) {
+function makeContext(config, options = {}) {
   const listeners = new Map()
   const warnings = []
   const sections = []
@@ -79,6 +79,9 @@ function makeContext(config) {
       }
     },
     workspaceRegistry: { list: () => [{ path: workspace }] },
+    // Модель по умолчанию — тот же выбор, что в разделе «Модели»: вкладка берёт
+    // модель отсюда, а не у последней сессии.
+    agentDefaultModel: { currentSelection: () => ({ provider: 'test-provider', model: 'test-model' }) },
     inject: (services, callback) => {
       if (services.every((service) => ctx[service] !== undefined)) callback(ctx)
     },
@@ -88,6 +91,10 @@ function makeContext(config) {
       else existing.push(handler)
     }
   }
+  // Проверки «службы нет»: вкладка не должна тянуть за собой обязательные службы.
+  // Службу убираем ДО применения — иначе необязательная подписка уже сработала бы.
+  if (options.noDefaultModel === true) delete ctx.agentDefaultModel
+  if (options.noWebServer === true) delete ctx.webServer
   apply(ctx, { harnessDir: join(root, 'harness'), ...config })
   const context = {
     preStep: listeners.get('agent/pre-step')?.[0],
@@ -449,10 +456,11 @@ console.log('\n== кнопка «Обработать заметки» ==')
   check('подсказка ввода объясняет аргументы', typeof command?.input?.hint === 'string' && command.input.hint !== '', String(command?.input?.hint))
   check('обработчик — функция', typeof command?.handler === 'function')
   check('обязательный список служб не расширен', JSON.stringify(inject) === '["systemPrompt"]', inject.join(','))
-  const noRoute = await command.handler({ rawInput: 'demo', agent: {}, signal: undefined })
-  check('без маршрута модели команда честно отказывает', noRoute?.kind === 'error' && String(noRoute.text).includes('маршрут'), JSON.stringify(noRoute))
   const noProject = await command.handler({ rawInput: '', agent: {}, signal: undefined })
   check('без проекта команда просит его назвать', noProject?.kind === 'error' && String(noProject.text).includes('проект'), JSON.stringify(noProject))
+  const modelLess = makeContext({}, { noDefaultModel: true })
+  const noModel = await modelLess.commands[0].handler({ rawInput: 'demo', agent: {}, signal: undefined })
+  check('без модели команда просит задать её в настройках', noModel?.kind === 'error' && String(noModel.text).includes('модель по умолчанию'), JSON.stringify(noModel))
   const silent = makeContext({ consolidate: false })
   check('обработка выключается настройкой', silent.commands.length === 0, `объявлено ${silent.commands.length}`)
 }
@@ -482,6 +490,8 @@ console.log('\n== вкладка настроек ==')
   check('в статистике виден проект воркспейса', state.includes('"project":"demo"'), state.slice(-200))
   check('необработанные заметки посчитаны по базе', state.includes('"total":2') && state.includes('"unprocessed":2'), state.slice(-240))
   check('состояние MCP в ответе есть', state.includes('"declared"'), state.slice(-120))
+  check('модель обработки взята из настроек, а не из сессии', state.includes('"provider":"test-provider"') && state.includes('"model":"test-model"'), state.slice(-300))
+  check('проект для вкладки назван', state.includes('"project":"demo"'), state.slice(-200))
   check('проход описан состоянием', state.includes('"running":false'), state.slice(-160))
   const onRun = await ask('/run', 'GET')
   check('запуск по GET отвергается', onRun.startsWith('405'), onRun)

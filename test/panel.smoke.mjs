@@ -4,7 +4,7 @@
 import { rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { createStore, openReadOnly } from './_engram-fixture.mjs'
-import { createJob, panelStatistics, parseSourceIds, sendJson, stateHandler } from '../lib/panel.js'
+import { createJob, panelStatistics, parseSourceIds, resolveRoute, sendJson, stateHandler } from '../lib/panel.js'
 
 let failures = 0
 const check = (title, ok, extra = '') => {
@@ -22,6 +22,14 @@ console.log('== ссылки на источники ==')
 check('ссылки читаются из строки «Источники:»', [...parseSourceIds('вывод\n\nИсточники: #1, #2')].join(',') === '1,2')
 check('без строки источников — пусто', parseSourceIds('просто текст').size === 0)
 check('в источники попадают только числа', [...parseSourceIds('Источники: #1, мусор #7')].join(',') === '1,7')
+
+console.log('\n== какая модель обрабатывает ==')
+check('настройка плагина важнее всего', resolveRoute({ override: { provider: 'a', model: 'b' }, defaultSelection: { provider: 'c', model: 'd' } })?.provider === 'a')
+check('иначе — модель по умолчанию из настроек DSH', resolveRoute({ defaultSelection: { provider: 'deepseek', model: 'deepseek-v4-flash' } })?.model === 'deepseek-v4-flash')
+check('модель сессии — запасной вариант', resolveRoute({ sessionRoute: { provider: 's', model: 's1' } })?.model === 's1')
+check('модель по умолчанию важнее модели сессии', resolveRoute({ defaultSelection: { provider: 'd', model: 'd1' }, sessionRoute: { provider: 's', model: 's1' } })?.model === 'd1')
+check('пустая настройка плагина не считается выбором', resolveRoute({ override: { provider: '', model: '' }, sessionRoute: { provider: 's', model: 's1' } })?.model === 's1')
+check('без модели вообще — ничего', resolveRoute({}) === undefined)
 
 const fixture = createStore(
   [
