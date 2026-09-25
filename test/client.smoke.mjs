@@ -208,7 +208,7 @@ check('многострочный отчёт читается строками',
 check('карточка названа со числом усвоенных заметок', text.includes('Диаризация: выбор движка · 2 заметки'), text)
 check('карточки не повторяются дважды', text.split('Диаризация: выбор движка').length === 2, text)
 check('во вкладке не осталось слов про «сырые заметки»', !text.includes('Сырые заметки'), text)
-check('подключение памяти названо по-человечески', text.includes('Память в диалогах') && text.includes('заработает после перезапуска'), text)
+check('подключение названо статусом и версией', text.includes('MCP-сервер') && text.includes('подключён') && text.includes('Версия Engram'), text)
 check('проекты видны в выборе, с числами', text.includes('hrm1 · 5') && text.includes('demo · 7'), text)
 check('обнулённый проект снимает фильтр, а не оставляет пустое поле', source.includes("(data.projects ?? []).some((bucket) => bucket.project === value)") && source.includes('setChoice(\'\')') && source.includes('placeholder: `все проекты · ${unprocessed}`'), 'правки фильтра нет')
 check('во вкладке нет объяснений и истории решений', !/Проекты берутся из базы|а не из открытых окон|собственных ключей|Последний рабочий каталог|Сырые заметки остаются|оценка по \d+ знака|MCP обязателен|Бинарь|memory-consolidate/u.test(text), text)
@@ -222,8 +222,9 @@ check('предел проходов назван коротко', text.includes
 check('выбор проекта есть, и по умолчанию — все', drops(tree).length === 1 && texts(drops(tree)[0]).includes('все проекты · 12'), texts(drops(tree)[0]))
 check('в выборе перечислены проекты очереди', dropItems(tree).some((item) => item.props.children === 'hrm1 · 5') && dropItems(tree).some((item) => item.props.children === 'demo · 7'), texts(tree))
 check('модель обработки показана даже без списка моделей', text.includes('ollama / qwen3-30b'), text)
-check('расхождение версии объяснено', text.includes('2.0.0 → 2.1.0 (сменится после перезапуска)'), text)
-check('когда всё подключено, предупреждения нет', text.includes('Пока подключения нет') === false && text.includes('заработает после перезапуска'), text)
+check('расхождение версии видно без пояснений', text.includes('2.0.0 → 2.1.0') && !text.includes('после перезапуска'), text)
+check('в блоке подключения нет пояснительных фраз', !text.includes('Модель ищет') && !text.includes('Память в диалогах') && !text.includes('объявлен'), text)
+check('когда сервер подключён, лишних строк нет', text.includes('MCP-сервер') && text.includes('подключён') && !text.includes('Пока подключения нет'), text)
 check('кнопка доступна, когда есть что обрабатывать', buttons(tree).every((button) => button.props.disabled !== true))
 
 // ── рендер: служба моделей отдала список ─────────────────────────────────────
@@ -284,9 +285,8 @@ const emptyTree = renderWith({
   job: { running: false, error: null, report: null, saved: [] }
 })
 check('пустая память объяснена', texts(emptyTree).includes('заметок в базе нет'), texts(emptyTree))
-check('неподключённая память названа честно', texts(emptyTree).includes('не подключено'), texts(emptyTree))
-check('про неподключённую память есть предупреждение', texts(emptyTree).includes('Пока подключения нет, модель не сможет ни искать, ни дописывать память. Заметки о работе сохраняются сами.'), texts(emptyTree))
-check('слова MCP во вкладке нет', !/\bMCP\b/i.test(text), text)
+check('неподключённый сервер назван статусом', texts(emptyTree).includes('не подключён'), texts(emptyTree))
+check('без сервера лишних пояснений нет', texts(emptyTree).includes('не подключён') && !texts(emptyTree).includes('модель не сможет'), texts(emptyTree))
 check('если модель не выбрана — сказано прямо', texts(emptyTree).includes('не выбрана'), texts(emptyTree))
 check('без несведённых заметок цена не выдумывается', texts(emptyTree).includes('Несведённых заметок нет.'), texts(emptyTree))
 
