@@ -51,7 +51,7 @@ upsert по теме по-прежнему обновляет запись, `mcp
 3. `engram-mcp.json` рядом с этим файлом
 
 ```json
-{ "dataDir": "C:\\Users\\me\\AppData\\Local\\DSH-1C\\engram", "project": "", "tools": "agent", "timezone": "Asia/Novosibirsk" }
+{ "dataDir": "C:\\Users\\me\\AppData\\Local\\DSH-1C\\engram", "project": "", "tools": "agent", "timezone": "UTC" }
 ```
 
 Если `dataDir` не задан, engram использует свой дефолт — `%USERPROFILE%\.engram\engram.db`.

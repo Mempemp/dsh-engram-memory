@@ -54,26 +54,26 @@ console.log('\n== ход с работой сохраняется ==')
 const full = [
   user('ПереопределитьРегионПоВремениРегистрации: выбери регион по времени регистрации'),
   assistant([text('Смотрю текущий запрос и метаданные регистра.')]),
-  assistant([call('edit', { file_path: 'ExternalFiles/АВТ_Шаблон/Ext/ObjectModule.bsl' }), text(LONG)]),
+  assistant([call('edit', { file_path: 'src/CommonModules/ПечатьДокументов/Ext/Module.bsl' }), text(LONG)]),
   user('а если даты равны?')
 ]
-const record = digestTurn(full, { project: 'hrm1', type: 'discovery' })
+const record = digestTurn(full, { project: 'test-project', type: 'discovery' })
 check('запись построена', record !== null)
 check('заголовок — первая строка итога', record?.title.startsWith('Разобрал сохранение регионов'), record?.title)
-check('проект подставлен', record?.project === 'hrm1')
-check('файл попал в запись', (record?.content ?? '').includes('ObjectModule.bsl'))
+check('проект подставлен', record?.project === 'test-project')
+check('файл попал в запись', (record?.content ?? '').includes('Module.bsl'))
 check('запрос пользователя попал в запись', (record?.content ?? '').includes('Запрос: ПереопределитьРегион'))
-check('тема стабильна', record?.topic === topicFrom('hrm1', record?.title ?? ''), record?.topic)
+check('тема стабильна', record?.topic === topicFrom('test-project', record?.title ?? ''), record?.topic)
 
 const commandOnly = [
   user('прогони тесты'),
   assistant([call('pwsh', { command: 'node test/hook.smoke.mjs' }), text(LONG)]),
   user('что дальше?')
 ]
-check('ход с командой тоже сохраняется', digestTurn(commandOnly, { project: 'hrm1' }) !== null)
+check('ход с командой тоже сохраняется', digestTurn(commandOnly, { project: 'test-project' }) !== null)
 check(
   'без изменений и без чтения записи нет',
-  digestTurn([user('объясни'), assistant([text(LONG)]), user('ясно')], { project: 'hrm1' }) === null
+  digestTurn([user('объясни'), assistant([text(LONG)]), user('ясно')], { project: 'test-project' }) === null
 )
 
 console.log('\n== исследовательский ход тоже запоминается ==')
@@ -85,7 +85,7 @@ const researchTurn = (count) => [
   ]),
   user('ясно')
 ]
-const studied = digestTurn(researchTurn(3), { project: 'pixerartist' })
+const studied = digestTurn(researchTurn(3), { project: 'other-project' })
 check('три чтения и содержательный итог — запись есть', studied !== null)
 check(
   'в записи видно, что читали',
@@ -93,12 +93,12 @@ check(
   (studied?.content ?? '').slice(0, 120)
 )
 check('изменённых файлов не приписано', !(studied?.content ?? '').includes('Файлы:'))
-check('двух чтений мало', digestTurn(researchTurn(2), { project: 'pixerartist' }) === null)
+check('двух чтений мало', digestTurn(researchTurn(2), { project: 'other-project' }) === null)
 check(
   'requireChange: true оставляет только правки',
-  digestTurn(researchTurn(3), { project: 'pixerartist', requireChange: true }) === null
+  digestTurn(researchTurn(3), { project: 'other-project', requireChange: true }) === null
 )
-check('research: false выключает разбор', digestTurn(researchTurn(3), { project: 'pixerartist', research: false }) === null)
+check('research: false выключает разбор', digestTurn(researchTurn(3), { project: 'other-project', research: false }) === null)
 
 console.log('\n== разбор хода целиком (turn/end) ==')
 const whole = digestTurn(
@@ -106,7 +106,7 @@ const whole = digestTurn(
     user('доведи выбор региона'),
     assistant([call('edit', { file_path: 'ObjectModule.bsl' }), text(LONG)])
   ],
-  { project: 'hrm1', turn: 'current' }
+  { project: 'test-project', turn: 'current' }
 )
 check('ход целиком разобран без завершающей реплики', whole !== null)
 check('запрос найден внутри хода', (whole?.content ?? '').includes('Запрос: доведи выбор региона'))
@@ -116,14 +116,14 @@ check('тот же ход в режиме previous даёт запись', diges
     assistant([call('edit', { file_path: 'ObjectModule.bsl' }), text(LONG)]),
     user('спасибо')
   ],
-  { project: 'hrm1' }
+  { project: 'test-project' }
 ) !== null)
 
 console.log('\n== аргументы CLI ==')
 const args = saveArgs(record)
 check('подкоманда save', args[0] === 'save')
 check('заголовок и текст на месте', args[1] === record.title && args[2] === record.content)
-check('проект и уровень явные', args.includes('--project') && args.includes('hrm1') && args.includes('--scope') && args.includes('project'))
+check('проект и уровень явные', args.includes('--project') && args.includes('test-project') && args.includes('--scope') && args.includes('project'))
 check('тема передана (engram обновит запись, а не создаст дубль)', args.includes('--topic') && args.includes(record.topic))
 check('тип передан', args.includes('--type') && args.includes('discovery'))
 
@@ -156,7 +156,7 @@ check('тема не кончается дефисом', !topicFrom('pix', 'я'.
 console.log('\n== усечение ==')
 const long = digestTurn(
   [user('длинная работа'), assistant([call('write', { file_path: 'a.bsl' }), text('х'.repeat(5000))])],
-  { project: 'hrm1', maxChars: 300 }
+  { project: 'test-project', maxChars: 300 }
 )
 check('тело обрезано по бюджету', (long?.content ?? '').length <= 300, String((long?.content ?? '').length))
 check('заголовок укорочен', titleFrom('я'.repeat(400), 120).length <= 120)
@@ -173,7 +173,7 @@ const heavy = digestTurn(
       text('ы'.repeat(8000))
     ])
   ],
-  { project: 'hrm1', turn: 'current' }
+  { project: 'test-project', turn: 'current' }
 )
 check('длинный итог не выбивает файлы из записи', (heavy?.content ?? '').includes('Файлы: D:/proj/lib/файл-1.js'), heavy?.content.slice(-160))
 check('команды тоже остаются', (heavy?.content ?? '').includes('Команды: node test/store.smoke.mjs'), heavy?.content.slice(-160))
@@ -181,29 +181,29 @@ check('тело по-прежнему в бюджете', (heavy?.content ?? '')
 check('итог укорочен, а не выброшен', /Итог: ы+…/.test(heavy?.content ?? ''), (heavy?.content ?? '').slice(0, 120))
 const bordered = digestTurn(
   [user('работа'), assistant([call('write', { file_path: 'a.bsl' }), text(`${'разбор хода. '.repeat(40)}\n\n${'хвост '.repeat(200)}`)])],
-  { project: 'hrm1', turn: 'current', maxChars: 400 }
+  { project: 'test-project', turn: 'current', maxChars: 400 }
 )
 const prose = (bordered?.content ?? '').split('\n\n').find((part) => part.startsWith('Итог: ')) ?? ''
 const blunt = digestTurn(
   [user('работа'), assistant([call('write', { file_path: 'a.bsl' }), text('я'.repeat(2000))])],
-  { project: 'hrm1', turn: 'current', maxChars: 400 }
+  { project: 'test-project', turn: 'current', maxChars: 400 }
 )
 const bluntProse = (blunt?.content ?? '').split('\n\n').find((part) => part.startsWith('Итог: ')) ?? ''
 check('обрезка итога встаёт на конец фразы, а не на символ', prose.endsWith('…') && /разбор хода…$/u.test(prose) && /[^\s]…$/u.test(prose), prose.slice(-40))
 check('а без границы режется жёстко, без выдумок', bluntProse.endsWith('…') && bluntProse.slice(-2, -1) === 'я', bluntProse.slice(-20))
 const tinyList = digestTurn(
   [user('правь'), assistant([...manyFiles.map((file) => call('edit', { file_path: file })), text('ы'.repeat(3000))])],
-  { project: 'hrm1', turn: 'current', listMaxChars: 60 }
+  { project: 'test-project', turn: 'current', listMaxChars: 60 }
 )
 check('списки держатся своего бюджета', tinyList !== null && tinyList.content.length - tinyList.content.indexOf('Файлы: ') <= 70, String(tinyList?.content.length))
 check('хотя бы один путь остаётся всегда', (tinyList?.content ?? '').includes('Файлы: D:/proj/lib/файл-1.js'), tinyList?.content.slice(-90))
 check(
   'длинный путь режется, но не исчезает',
-  (digestTurn([user('правь'), assistant([call('edit', { file_path: `D:/${'г'.repeat(300)}.js` }), text('ы'.repeat(2000))])], { project: 'hrm1', turn: 'current', listMaxChars: 80 })?.content ?? '').includes('Файлы: D:/ггг')
+  (digestTurn([user('правь'), assistant([call('edit', { file_path: `D:/${'г'.repeat(300)}.js` }), text('ы'.repeat(2000))])], { project: 'test-project', turn: 'current', listMaxChars: 80 })?.content ?? '').includes('Файлы: D:/ггг')
 )
 const shortSummary = digestTurn(
   [user('правь'), assistant([call('write', { file_path: 'a.bsl' }), text(LONG)])],
-  { project: 'hrm1', turn: 'current' }
+  { project: 'test-project', turn: 'current' }
 )
 check('короткий итог не режется вовсе', (shortSummary?.content ?? '').includes(LONG), shortSummary?.content)
 
@@ -219,14 +219,14 @@ check('без пунктуации заголовок рвётся по слов
 const paragraphs = ['абзац-один про разбор хода и порядок работы целиком. '.padEnd(200, 'ещё '), 'абзац-два про то же самое и тоже целиком. '.padEnd(200, 'ещё '), 'абзац-три про третью часть работы. '.padEnd(200, 'ещё ')].join('\n\n')
 const byParagraph = digestTurn(
   [user('работа'), assistant([call('write', { file_path: 'a.bsl' }), text(paragraphs)])],
-  { project: 'hrm1', turn: 'current', maxChars: 537 }
+  { project: 'test-project', turn: 'current', maxChars: 537 }
 )
 const paragraphProse = proseOf(byParagraph)
 check('начало и вывод сохранены, середина — нет', paragraphProse.includes('абзац-один') && paragraphProse.includes('абзац-три') && !paragraphProse.includes('абзац-два'), paragraphProse.slice(-80))
 check('о пропущенной середине сказано прямо', /пропущено \d+ знаков/u.test(paragraphProse), paragraphProse.slice(0, 220))
 const longFirst = digestTurn(
   [user('работа'), assistant([call('write', { file_path: 'a.bsl' }), text(`${'слово '.repeat(60)}\n\n${'второй абзац тут. '.repeat(20)}`)])],
-  { project: 'hrm1', turn: 'current', maxChars: 537 }
+  { project: 'test-project', turn: 'current', maxChars: 537 }
 )
 check(
   'длинный первый абзац не оставляет запись пустой',

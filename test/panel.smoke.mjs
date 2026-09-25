@@ -151,8 +151,8 @@ console.log('\n== состояние прохода ==')
     seen = projects
     return { status: 'ok', report: 'готово' }
   })
-  await job.start(['hrm1'])
-  check('сужение до проекта доезжает до прохода', Array.isArray(seen) && seen[0] === 'hrm1', JSON.stringify(seen))
+  await job.start(['test-project'])
+  check('сужение до проекта доезжает до прохода', Array.isArray(seen) && seen[0] === 'test-project', JSON.stringify(seen))
 }
 {
   const job = createJob(async () => ({ status: 'no-cards', notes: 3, cards: [], saved: [], stopped: 'no-cards' }), { log: () => {} })

@@ -140,7 +140,7 @@ const stateWithWork = {
   ok: true,
   workspace: 'D:/demo',
   projects: [
-    { project: 'hrm1', total: 40, processed: 35, unprocessed: 5, cards: 3, bar: 35 / 40 },
+    { project: 'test-project', total: 40, processed: 35, unprocessed: 5, cards: 3, bar: 35 / 40 },
     { project: 'demo', total: 12, processed: 5, unprocessed: 7, cards: 2, bar: 5 / 12 }
   ],
   notes: { total: 52, processed: 40, unprocessed: 12, cards: 5, bar: 40 / 52 },
@@ -209,7 +209,7 @@ check('карточка названа со числом усвоенных за
 check('карточки не повторяются дважды', text.split('Диаризация: выбор движка').length === 2, text)
 check('во вкладке не осталось слов про «сырые заметки»', !text.includes('Сырые заметки'), text)
 check('подключение названо статусом и версией', text.includes('MCP-сервер') && text.includes('подключён') && text.includes('Версия Engram'), text)
-check('проекты видны в выборе, с числами', text.includes('hrm1 · 5') && text.includes('demo · 7'), text)
+check('проекты видны в выборе, с числами', text.includes('test-project · 5') && text.includes('demo · 7'), text)
 check('обнулённый проект снимает фильтр, а не оставляет пустое поле', source.includes("(data.projects ?? []).some((bucket) => bucket.project === value)") && source.includes('setChoice(\'\')') && source.includes('placeholder: `все проекты · ${unprocessed}`'), 'правки фильтра нет')
 check('во вкладке нет объяснений и истории решений', !/Проекты берутся из базы|а не из открытых окон|собственных ключей|Последний рабочий каталог|Сырые заметки остаются|оценка по \d+ знака|MCP обязателен|Бинарь|memory-consolidate/u.test(text), text)
 check('строка версии названа по-человечески', text.includes('Версия Engram'), text)
@@ -220,7 +220,7 @@ check('цена нажатия показана до нажатия', text.inclu
 check('вкладка не показывает сводку гигиены: человеку нужны очередь и кнопка, а не термины', text.includes('Гигиена:') === false && text.includes('усвоено выводами') === false, text.slice(0, 300))
 check('предел проходов назван коротко', text.includes('остаток — следующим нажатием'), text)
 check('выбор проекта есть, и по умолчанию — все', drops(tree).length === 1 && texts(drops(tree)[0]).includes('все проекты · 12'), texts(drops(tree)[0]))
-check('в выборе перечислены проекты очереди', dropItems(tree).some((item) => item.props.children === 'hrm1 · 5') && dropItems(tree).some((item) => item.props.children === 'demo · 7'), texts(tree))
+check('в выборе перечислены проекты очереди', dropItems(tree).some((item) => item.props.children === 'test-project · 5') && dropItems(tree).some((item) => item.props.children === 'demo · 7'), texts(tree))
 check('модель обработки показана даже без списка моделей', text.includes('ollama / qwen3-30b'), text)
 check('расхождение версии видно без пояснений', text.includes('2.0.0 → 2.1.0') && !text.includes('после перезапуска'), text)
 check('в блоке подключения нет пояснительных фраз', !text.includes('Модель ищет') && !text.includes('Память в диалогах') && !text.includes('объявлен'), text)

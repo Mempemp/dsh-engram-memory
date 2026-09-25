@@ -205,17 +205,17 @@ check('enabled: false отключает плагин целиком', off.preSt
 check('падений не залогировано', (tiny.warnings.length === 0), tiny.warnings.join('; '))
 
 console.log('\n== проект: регистр и имя из сессий engram ==')
-const pixelDir = join(root, 'PixerArtist')
+const pixelDir = join(root, 'OtherProject')
 mkdirSync(pixelDir, { recursive: true })
 createStore(
-  [{ title: 'Обзор репозитория', content: 'Пайплайн агента-художника, Aseprite MCP', project: 'pixerartist' }],
+  [{ title: 'Обзор репозитория', content: 'Пайплайн сборки спрайтов пака', project: 'otherproject' }],
   { dir: pixelDir }
 )
 pointAt(pixelDir)
 const pixel = makeContext({})
 const pixelDecision = await call(pixel.preStep, payloadFor({ id: 'session-pixel', cwd: pixelDir, origin: 'main' }), {
   kind: 'enter',
-  messages: [userMessage('что за репо pixerartist?')]
+  messages: [userMessage('что за репо otherproject?')]
 })
 check('проект с заглавными буквами в имени папки находится', pixelDecision.messages.length === 2, String(pixelDecision.messages.length))
 
@@ -522,11 +522,11 @@ console.log('\n== кнопка «Обработать заметки» ==')
 
 console.log('\n== разбор аргументов команды ==')
 check('пустой ввод — все проекты без сужения', JSON.stringify(parseConsolidateInput('')) === JSON.stringify({ dryRun: false, project: null }), JSON.stringify(parseConsolidateInput('')))
-check('имя проекта сужает проход', parseConsolidateInput('hrm1').project === 'hrm1' && parseConsolidateInput('hrm1').dryRun === false)
+check('имя проекта сужает проход', parseConsolidateInput('test-project').project === 'test-project' && parseConsolidateInput('test-project').dryRun === false)
 check('«черновик» — показ без записи', parseConsolidateInput('черновик').dryRun === true && parseConsolidateInput('черновик').project === null)
-check('«черновик» и проект вместе', parseConsolidateInput('черновик hrm1').dryRun === true && parseConsolidateInput('черновик hrm1').project === 'hrm1', JSON.stringify(parseConsolidateInput('черновик hrm1')))
-check('латинский dry понимается так же', parseConsolidateInput('dry hrm1').dryRun === true && parseConsolidateInput('dry hrm1').project === 'hrm1')
-check('регистр имени проекта не важен', parseConsolidateInput('HRM1').project === 'hrm1', JSON.stringify(parseConsolidateInput('HRM1')))
+check('«черновик» и проект вместе', parseConsolidateInput('черновик test-project').dryRun === true && parseConsolidateInput('черновик test-project').project === 'test-project', JSON.stringify(parseConsolidateInput('черновик test-project')))
+check('латинский dry понимается так же', parseConsolidateInput('dry test-project').dryRun === true && parseConsolidateInput('dry test-project').project === 'test-project')
+check('регистр имени проекта не важен', parseConsolidateInput('TEST-PROJECT').project === 'test-project', JSON.stringify(parseConsolidateInput('TEST-PROJECT')))
 
 console.log('\n== вкладка настроек ==')
 {
