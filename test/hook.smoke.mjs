@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { apply, captureEnv, inject, parseConsolidateInput, projectOf } from '../lib/index.js'
 import { currentProjectFile, readCurrentProject } from '../lib/mcp-setup.js'
@@ -295,7 +296,7 @@ const captureDir = join(root, 'Captured')
 mkdirSync(captureDir, { recursive: true })
 pointAt(captureDir)
 const engramBinary = process.env.ENGRAM_BINARY ??
-  'D:/cursor projects/DSH-1C-deskop-bundle/vendor/engram-mcp/engram.exe'
+  fileURLToPath(new URL('../mcp/engram.exe', import.meta.url))
 if (!existsSync(engramBinary)) {
   console.log(`  skip engram не найден (${engramBinary}) — проверка автосохранения пропущена`)
 } else {

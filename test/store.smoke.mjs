@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import assert from 'node:assert/strict'
 import { buildMatchQuery, formatInjection, openStore, searchObservations } from '../lib/engram-store.js'
@@ -125,7 +126,7 @@ db.close()
 console.log('\n== настоящий engram, если файл доступен ==')
 const exeCandidates = [
   process.env.ENGRAM_EXE,
-  'D:/cursor projects/DSH-1C-deskop-bundle/vendor/engram-mcp/engram.exe'
+  fileURLToPath(new URL('../mcp/engram.exe', import.meta.url))
 ].filter((path) => typeof path === 'string' && path !== '')
 const exe = exeCandidates.find((path) => existsSync(path))
 if (exe === undefined) {
