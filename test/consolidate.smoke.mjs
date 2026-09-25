@@ -160,8 +160,9 @@ check('запись ушла с темой и типом', calls[0].includes('--
 check('ссылка на несуществующую заметку отброшена', written.cards[0].sources.join(',') === '1,6', written.cards[0].sources.join(','))
 check('в теле карточки стоят источники', calls[0][2].includes('Источники: #1, #6'), calls[0][2].slice(-40))
 check('расход токенов в отчёте есть', written.usage.totalTokens === 1234)
-check('отчёт говорит, что заметки целы', renderReport(written).includes('Сырые заметки остались на месте'))
-check('отчёт показывает источники', renderReport(written).includes('← #1, #6'), renderReport(written))
+check('отчёт говорит, куда легли карточки', renderReport(written).includes('Карточки легли в проект: demo — 1'), renderReport(written))
+check('отчёт называет, сколько заметок усвоила карточка', renderReport(written).includes('· 2 заметки'), renderReport(written))
+check('в отчёте не осталось слов про «сырые заметки»', !renderReport(written).includes('Сырые заметки'), renderReport(written))
 
 calls.length = 0
 const draft = await consolidate({ ...base, dryRun: true })
@@ -349,13 +350,13 @@ const echo = async (messages) => {
   check('прогресс сообщался после каждого прохода', progress.length === 3 && progress[0].pass === 1 && progress[2].processed === 3, JSON.stringify(progress))
   check('расход токенов сложился по проходам', run.usage.totalTokens === 300 && run.usage.promptTokens === 240, JSON.stringify(run.usage))
   check('карточки легли в проекты своих источников', wrote.join(' ') === 'alpha:project:Вывод 3-5 alpha:project:Вывод 2-5 alpha:project:Вывод 1-5', wrote.join(' '))
-  check('отчёт перечисляет проекты и остаток', renderRunReport(run).includes('Проекты: alpha — 3, beta — 2, gamma — 1') && renderRunReport(run).includes('нажмите ещё раз'), renderRunReport(run))
+  check('отчёт перечисляет, куда легли карточки, и остаток', renderRunReport(run).includes('Карточки легли в проект: alpha — 3') && renderRunReport(run).includes('нажмите ещё раз'), renderRunReport(run))
 }
 {
   const done = await consolidateAll({ store: multiStore, complete: echo, save: writeCard, limit: 2, maxPasses: 8 })
   check('проходы идут, пока есть несведённое', done.status === 'ok' && done.left === 0 && done.stopped === null, JSON.stringify({ status: done.status, left: done.left, stopped: done.stopped, passes: done.passes }))
   check('очередь после полного прохода пуста', scopeStatistics(multiStore).unprocessed === 0)
-  check('отчёт о полном проходе называет числа', renderRunReport(done).includes('Сведено 3 из 3 заметок'), renderRunReport(done))
+  check('отчёт о полном проходе называет числа', renderRunReport(done).includes('Сведено 3 заметки → 3 карточки-выводы'), renderRunReport(done))
 }
 {
   const nothing = await consolidateAll({ store: multiStore, complete: echo, save: async () => {} })
@@ -422,7 +423,7 @@ const laterStore = openReadOnly(later.path)
 }
 {
   const single = renderRunReport({ status: 'ok', plannedByProject: [{ project: 'demo', unprocessed: 3 }], passes: 1, notes: 3, cards: [], saved: [], dryRun: false })
-  check('один проект за один проход — прежний отчёт', single.includes('Обобщено 3 заметок'), single)
+  check('один проект за один проход — короткий отчёт без лишних чисел', single.includes('Сведено 3 заметки → 0 карточек-выводов.') && !single.includes('за 1 проход'), single)
 }
 laterStore.close?.()
 rmSync(later.dir, { recursive: true, force: true })
