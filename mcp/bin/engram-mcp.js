@@ -77,7 +77,7 @@ export function injectProject(line, project) {
 function main() {
   const exe = process.env.ENGRAM_BIN || join(here, '..', 'engram.exe')
   if (!existsSync(exe)) {
-    process.stderr.write(`engram-mcp: нет бинарника ${exe}\n`)
+    process.stderr.write(`engram-mcp: не найден ${exe}\n`)
     process.exit(1)
   }
 
@@ -115,7 +115,7 @@ function main() {
   }
 
   // Профиль инструментов задаётся аргументом, а не ENGRAM_TOOLS: переменная в
-  // бинарнике есть, но на список инструментов не влияет (проверено на v2.0.0).
+  // engram есть, но на список инструментов не влияет (проверено на v2.0.0).
   // agent — 19 инструментов вместо 23, меньше схем в промпте.
   const args = ['mcp', `--tools=${config.tools || 'agent'}`]
   const child = spawn(exe, args, { env, stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })

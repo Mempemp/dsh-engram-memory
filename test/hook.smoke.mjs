@@ -38,7 +38,7 @@ createStore(
 const emptyDir = join(root, 'empty')
 mkdirSync(emptyDir)
 
-/** Конфиг шима MCP — тот же файл читает плагин, поэтому путь задаём через него. */
+/** Конфиг прокладки MCP — тот же файл читает плагин, поэтому путь задаём через него. */
 function pointAt(dir) {
   const configPath = join(root, `engram-${dir.endsWith('empty') ? 'empty' : 'workspace'}.json`)
   writeFileSync(configPath, JSON.stringify({ dataDir: dir.replaceAll('\\', '/') }), 'utf8')
@@ -297,7 +297,7 @@ pointAt(captureDir)
 const engramBinary = process.env.ENGRAM_BINARY ??
   'D:/cursor projects/DSH-1C-deskop-bundle/vendor/engram-mcp/engram.exe'
 if (!existsSync(engramBinary)) {
-  console.log(`  skip бинарь engram не найден (${engramBinary}) — проверка автосохранения пропущена`)
+  console.log(`  skip engram не найден (${engramBinary}) — проверка автосохранения пропущена`)
 } else {
   // Базу создаёт сам engram: фикстура годится для чтения, но её схема не
   // принимает upsert-записи (в настоящей таблице есть ключи и ограничения).
@@ -390,7 +390,7 @@ const turnDir = join(root, 'TurnEnd')
 mkdirSync(turnDir, { recursive: true })
 pointAt(turnDir)
 if (!existsSync(engramBinary)) {
-  console.log('  skip бинарь engram не найден — проверка записи по turn/end пропущена')
+  console.log('  skip engram не найден — проверка записи по turn/end пропущена')
 } else {
   const boot = spawnSync(
     engramBinary,

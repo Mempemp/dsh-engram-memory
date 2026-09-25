@@ -1,5 +1,5 @@
 // Фикстура engram-совместимой базы: та же схема, что у настоящего engram v2.0.0,
-// чтобы тесты не зависели от наличия бинарника.
+// чтобы тесты не зависели от наличия engram.exe.
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

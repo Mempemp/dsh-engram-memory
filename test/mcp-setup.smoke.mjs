@@ -14,7 +14,7 @@ function check(title, ok, extra = '') {
   }
 }
 
-// Фикстура: «пакет плагина» с крошечными подделками бинарника и шима.
+// Фикстура: «пакет плагина» с крошечными подделками engram.exe и прокладки.
 const root = mkdtempSync(join(tmpdir(), 'engram-mcp-setup-'))
 const plugin = join(root, 'plugin')
 const bundled = join(plugin, 'mcp')
@@ -30,7 +30,7 @@ console.log('== раскладка MCP-половины ==')
 check('версия читается из маркера', mcpVersion(bundled) === '2.1.0', mcpVersion(bundled))
 const first = ensureMcpPackage(harness, bundled)
 check('половина разложена', first.action === 'copied' && existsSync(join(packageDir, 'engram.exe')), first.action)
-check('шим лёг рядом с бинарником', existsSync(join(packageDir, 'bin', 'engram-mcp.js')))
+check('прокладка легла рядом с engram.exe', existsSync(join(packageDir, 'bin', 'engram-mcp.js')))
 check('версия отмечена в копии', mcpVersion(packageDir) === '2.1.0')
 check('повторный запуск ничего не копирует', ensureMcpPackage(harness, bundled).action === 'current')
 
@@ -38,7 +38,7 @@ writeFileSync(join(bundled, 'VERSION'), '2.2.0\n')
 const upgraded = ensureMcpPackage(harness, bundled)
 check('новая версия в пакете заменяет копию', upgraded.action === 'copied' && mcpVersion(packageDir) === '2.2.0')
 
-// Прокладка меняется чаще бинарника: её копию сверяем по содержимому, иначе
+// Прокладка меняется чаще engram.exe: её копию сверяем по содержимому, иначе
 // правка осталась бы в пакете и не доехала до харнесса.
 writeFileSync(join(bundled, 'bin', 'engram-mcp.js'), '// shim v2')
 const shimOnly = ensureMcpPackage(harness, bundled)

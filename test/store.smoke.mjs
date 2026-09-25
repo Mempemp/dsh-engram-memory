@@ -1,7 +1,7 @@
 // Проверка поиска по базе engram: запросы на русском, бюджет, промахи.
 //
 // Прогоняется на синтетической базе со схемой engram. Если рядом есть настоящий
-// бинарник (ENGRAM_EXE или вендоренный в бандле), тот же набор проверяется на
+// файл engram (ENGRAM_EXE или входящий в пакет), тот же набор проверяется на
 // реальной базе, созданной через CLI: это ловит расхождения схемы.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
@@ -122,7 +122,7 @@ check('мягко удалённые не возвращаются', (() => {
 })())
 db.close()
 
-console.log('\n== настоящий engram, если бинарник доступен ==')
+console.log('\n== настоящий engram, если файл доступен ==')
 const exeCandidates = [
   process.env.ENGRAM_EXE,
   'D:/cursor projects/DSH-1C-deskop-bundle/vendor/engram-mcp/engram.exe'
