@@ -46,6 +46,34 @@ export function projectFromState(paths) {
   return null
 }
 
+// Записи, где проект — часть самой записи. Чтение не трогаем: модель должна
+// искать по всей памяти, а не только по последней рабочей области.
+const WRITE_TOOLS = new Set(['mem_save', 'mem_save_prompt'])
+
+/**
+ * Подставляет проект в запись памяти, если модель его не назвала.
+ *
+ * Переменная окружения тут не помогает: она задана один раз при запуске, а
+ * человек за сессию успевает поработать в другой области. Поэтому проект
+ * подставляется в каждый вызов — тогда записи не уезжают в каталог запуска
+ * приложения.
+ */
+export function injectProject(line, project) {
+  if (typeof line !== 'string' || line === '' || typeof project !== 'string' || project === '') return line
+  let message = null
+  try {
+    message = JSON.parse(line)
+  } catch {
+    return line
+  }
+  if (message?.method !== 'tools/call') return line
+  const name = message.params?.name
+  if (typeof name !== 'string' || !WRITE_TOOLS.has(name)) return line
+  const args = message.params?.arguments
+  if (args !== null && typeof args === 'object' && typeof args.project === 'string' && args.project.trim() !== '') return line
+  return JSON.stringify({ ...message, params: { ...message.params, arguments: { ...(args ?? {}), project } } })
+}
+
 function main() {
   const exe = process.env.ENGRAM_BIN || join(here, '..', 'engram.exe')
   if (!existsSync(exe)) {
@@ -71,18 +99,19 @@ function main() {
   if (config.timezone) env.ENGRAM_TIMEZONE = config.timezone
 
   const explicit = typeof config.project === 'string' ? config.project.trim() : ''
-  if (explicit !== '') {
-    env.ENGRAM_PROJECT = explicit
+  // Снимок читается на каждый вызов: человек за сессию переключается между
+  // рабочими областями, и записи должны уходить в ту, где он сейчас.
+  const statePaths = () => [
+    process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'DSH-1C', 'engram-current-project.json') : undefined
+  ]
+  const projectNow = () => (explicit !== '' ? explicit : projectFromState(statePaths()))
+
+  const first = projectNow()
+  if (first !== null) {
+    env.ENGRAM_PROJECT = first
+    process.stderr.write(`engram-mcp: проект — ${first} (последняя рабочая область)\n`)
   } else {
-    const fromState = projectFromState([
-      process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'DSH-1C', 'engram-current-project.json') : undefined
-    ])
-    if (fromState !== null) {
-      env.ENGRAM_PROJECT = fromState
-      process.stderr.write(`engram-mcp: проект — ${fromState} (последняя рабочая область)\n`)
-    } else {
-      process.stderr.write('engram-mcp: проект не назван — engram возьмёт имя своего рабочего каталога\n')
-    }
+    process.stderr.write('engram-mcp: проект не назван — engram возьмёт имя своего рабочего каталога\n')
   }
 
   // Профиль инструментов задаётся аргументом, а не ENGRAM_TOOLS: переменная в
@@ -90,14 +119,28 @@ function main() {
   // agent — 19 инструментов вместо 23, меньше схем в промпте.
   const args = ['mcp', `--tools=${config.tools || 'agent'}`]
   const child = spawn(exe, args, { env, stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
-  process.stdin.pipe(child.stdin)
-  child.stdout.pipe(process.stdout)
   child.on('error', (error) => {
     process.stderr.write(`engram-mcp: не запустился ${exe}: ${error.message}\n`)
     process.exit(1)
   })
   child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)))
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill())
+
+  // Запросы идут строками JSON. Свои строки пропускаем как есть, в записи
+  // памяти добавляем проект — так просит только тот вызов, где он нужен.
+  let pending = ''
+  process.stdin.setEncoding('utf8')
+  process.stdin.on('data', (chunk) => {
+    pending += chunk
+    const lines = pending.split('\n')
+    pending = lines.pop() ?? ''
+    for (const line of lines) child.stdin.write(injectProject(line, projectNow()) + '\n')
+  })
+  process.stdin.on('end', () => {
+    if (pending !== '') child.stdin.write(injectProject(pending, projectNow()))
+    child.stdin.end()
+  })
+  child.stdout.pipe(process.stdout)
 }
 
 // Запуск только при прямом вызове: тесты берут отсюда чистые функции.
