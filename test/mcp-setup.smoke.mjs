@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureMcpPackage, ensureMcpServer, harnessDir, mcpVersion, resolveNode, setupMcp } from '../lib/mcp-setup.js'
+import { currentProjectFile, ensureMcpPackage, ensureMcpServer, harnessDir, mcpVersion, readCurrentProject, resolveNode, setupMcp, writeCurrentProject } from '../lib/mcp-setup.js'
 
 let failed = 0
 function check(title, ok, extra = '') {
@@ -37,6 +37,32 @@ check('повторный запуск ничего не копирует', ensu
 writeFileSync(join(bundled, 'VERSION'), '2.2.0\n')
 const upgraded = ensureMcpPackage(harness, bundled)
 check('новая версия в пакете заменяет копию', upgraded.action === 'copied' && mcpVersion(packageDir) === '2.2.0')
+
+// Прокладка меняется чаще бинарника: её копию сверяем по содержимому, иначе
+// правка осталась бы в пакете и не доехала до харнесса.
+writeFileSync(join(bundled, 'bin', 'engram-mcp.js'), '// shim v2')
+const shimOnly = ensureMcpPackage(harness, bundled)
+check('правка прокладки доезжает без смены версии', shimOnly.action === 'copied' && readFileSync(join(packageDir, 'bin', 'engram-mcp.js'), 'utf8') === '// shim v2', shimOnly.action)
+check('и после правки повтор ничего не копирует', ensureMcpPackage(harness, bundled).action === 'current')
+
+console.log('\n== снимок «где работаем» ==')
+const env = { LOCALAPPDATA: join(root, 'localappdata') }
+check('путь снимка — в LocalAppData', currentProjectFile(env) === join(env.LOCALAPPDATA, 'DSH-1C', 'engram-current-project.json'), String(currentProjectFile(env)))
+check('без LocalAppData снимка нет', currentProjectFile({}) === null && writeCurrentProject('hrm1', 'D:/Work/hrm1', {}) === null && readCurrentProject({}) === null)
+check('снимок пишется и читается', writeCurrentProject('hrm1', 'D:/Work/hrm1', env) !== null && readCurrentProject(env) === 'hrm1')
+check('пустое имя проекта не пишется', writeCurrentProject('   ', 'D:/Work/hrm1', env) === null && readCurrentProject(env) === 'hrm1')
+writeFileSync(currentProjectFile(env), 'не json')
+check('битый снимок — проекта нет', readCurrentProject(env) === null)
+writeCurrentProject('hrm1', 'D:/Work/hrm1', env)
+
+console.log('\n== прокладка читает снимок и конфиг ==')
+const shim = await import('../mcp/bin/engram-mcp.js')
+check('проект берётся из снимка', shim.projectFromState([currentProjectFile(env)]) === 'hrm1', String(shim.projectFromState([currentProjectFile(env)])))
+check('нет файла — проекта нет', shim.projectFromState([join(root, 'нет-такого.json'), undefined, '']) === null)
+const shimConfig = join(root, 'shim-config.json')
+writeFileSync(shimConfig, JSON.stringify({ dataDir: 'D:/data' }), 'utf8')
+check('конфиг читается первым существующим путём', shim.readConfig([join(root, 'нет-такого.json'), shimConfig])?.dataDir === 'D:/data')
+check('конфига нет — пустой объект', JSON.stringify(shim.readConfig([join(root, 'нет-такого.json')])) === '{}')
 
 console.log('\n== объявление сервера ==')
 const shimPath = join(packageDir, 'bin', 'engram-mcp.js')

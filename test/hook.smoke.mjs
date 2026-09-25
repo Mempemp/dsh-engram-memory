@@ -1,12 +1,13 @@
 // Проверка хост-половины: плагин поднимает pre-step, инжектит в бюджет,
 // не повторяет одну запись в рамках сессии и молча пропускает ход, когда
 // памяти нет или включить нечего.
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import { apply, captureEnv, inject, parseConsolidateInput, projectOf } from '../lib/index.js'
+import { currentProjectFile, readCurrentProject } from '../lib/mcp-setup.js'
 import { formatInjection } from '../lib/engram-store.js'
 import { createStore, openReadOnly } from './_engram-fixture.mjs'
 
@@ -22,6 +23,9 @@ function check(label, condition, detail = '') {
 }
 
 const root = mkdtempSync(join(tmpdir(), 'engram-hook-'))
+// Снимок «где сейчас работаем» плагин пишет в LocalAppData: настоящий каталог
+// не трогаем, уводим его в temp.
+process.env.LOCALAPPDATA = join(root, 'localappdata')
 const workspace = join(root, 'demo')
 mkdirSync(workspace, { recursive: true })
 createStore(
@@ -141,6 +145,12 @@ const injected = await call(preStep, payloadFor(header), decision)
 check('ход вернулся, а не подменён', injected.kind === 'enter')
 check('добавилось ровно одно сообщение', injected.messages.length === 2, String(injected.messages.length))
 check('сообщение стоит перед репликой пользователя', injected.messages[1] === decision.messages[0])
+
+console.log('\n== снимок «где работаем» для прокладки MCP ==')
+check('снимок записан при первом же ходу', readCurrentProject() === 'demo', String(readCurrentProject()))
+check('снимок лежит в LocalAppData', currentProjectFile() === join(root, 'localappdata', 'DSH-1C', 'engram-current-project.json'), String(currentProjectFile()))
+const snapshot = existsSync(currentProjectFile()) ? readFileSync(currentProjectFile(), 'utf8') : ''
+check('в снимке назван рабочий каталог', snapshot !== '' && JSON.parse(snapshot).workspace === workspace, snapshot.slice(0, 140))
 check('это сообщение плагина', injected.messages[0].source?.plugin === 'dsh-engram-memory', JSON.stringify(injected.messages[0].source))
 check('роль — user', injected.messages[0].role === 'user')
 const text = injected.messages[0].content[0].text
@@ -343,6 +353,7 @@ check('модели прямо сказано, что общий слой нап
 check('есть как поднять проектное правило в общий слой', (guidance?.text ?? '').includes('mem_update'))
 check('сказано про секреты', (guidance?.text ?? '').includes('секреты'))
 check('есть правило вытеснения, а не дублирования', (guidance?.text ?? '').includes('вытеснено'))
+check('модели сказано называть проект самому', (guidance?.text ?? '').includes('называй проект сам'))
 
 console.log('\n== ход записывается на turn/end (а не только на следующем вопросе) ==')
 const turnDir = join(root, 'TurnEnd')
