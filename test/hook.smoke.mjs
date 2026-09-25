@@ -488,8 +488,8 @@ console.log('\n== вкладка настроек ==')
   pointAt(workspace)
   const panel = makeContext({})
   const paths = panel.routes.map((route) => `${route.kind}:${route.path}`).join(' ')
-  check('маршруты вкладки объявлены', panel.routes.length === 3, paths)
-  check('состояние, запуск и отмена — своими адресами', ['/engram-memory/state', '/engram-memory/run', '/engram-memory/cancel'].every((path) => paths.includes(path)), paths)
+  check('маршруты вкладки объявлены', panel.routes.length === 5, paths)
+  check('состояние, запуск, отмена, список моделей и выбор модели — своими адресами', ['/engram-memory/state', '/engram-memory/run', '/engram-memory/cancel', '/engram-memory/models', '/engram-memory/model'].every((path) => paths.includes(path)), paths)
   check('маршруты точные, без префикса', panel.routes.every((route) => route.kind === 'exact'), paths)
   const ask = async (suffix, method) =>
     new Promise((resolve) => {
@@ -514,6 +514,12 @@ console.log('\n== вкладка настроек ==')
   check('проход описан состоянием', state.includes('"running":false'), state.slice(-160))
   const onRun = await ask('/run', 'GET')
   check('запуск по GET отвергается', onRun.startsWith('405'), onRun)
+  const catalog = await ask('/models', 'GET')
+  check('список моделей отдаётся, даже если служба моделей недоступна', catalog.startsWith('200|application/json') && catalog.includes('"models":[]'), catalog)
+  const onModelGet = await ask('/model', 'GET')
+  check('выбор модели по GET отвергается', onModelGet.startsWith('405'), onModelGet)
+  const onModelEmpty = await ask('/model', 'POST')
+  check('выбор модели без provider и model отвергается', onModelEmpty.startsWith('400') && onModelEmpty.includes('provider'), onModelEmpty)
 }
 
 console.log('\n== освобождение стора ==')

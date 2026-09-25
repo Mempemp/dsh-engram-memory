@@ -44,7 +44,7 @@ function makeReact(values) {
 }
 
 const fakeRequire = (name) => {
-  if (name === 'react') return makeReact([null, null, false, 0, ''])
+  if (name === 'react') return makeReact([null, null, false, 0, '', null, false, false])
   if (name === 'react/jsx-runtime') return { jsx, jsxs }
   return {}
 }
@@ -67,7 +67,7 @@ const clientContext = {
 client.apply(clientContext)
 check('вкладка объявлена в настройках', registration?.spec?.name === 'settings.section', JSON.stringify(registration?.spec))
 check('id вкладки — наш', registration?.spec?.id === 'engram-memory', String(registration?.spec?.id))
-check('подпись вкладки — «Память»', registration?.spec?.label?.() === 'Память', String(registration?.spec?.label?.()))
+check('подпись вкладки — «Память Engram»', registration?.spec?.label?.() === 'Память Engram', String(registration?.spec?.label?.()))
 check('вкладка после параметров проекта', registration?.spec?.order === 56, String(registration?.spec?.order))
 
 /** Поиск в дереве разметки: функции-компоненты раскрываем так же, как это делает React. */
@@ -109,10 +109,18 @@ const barWidth = (tree) => {
   })
   return width
 }
-const selects = (tree) => {
+/** Кнопки своих выпадающих списков: системных <select> в разметке нет. */
+const drops = (tree) => {
   const list = []
   walk(tree, (node) => {
-    if (node.type === 'select') list.push(node)
+    if (typeof node.props?.className === 'string' && node.props.className.includes('pem-drop__btn')) list.push(node)
+  })
+  return list
+}
+const dropItems = (tree) => {
+  const list = []
+  walk(tree, (node) => {
+    if (typeof node.props?.className === 'string' && node.props.className.includes('pem-drop__item')) list.push(node)
   })
   return list
 }
@@ -159,7 +167,23 @@ const renderWith = (state) => {
       }
     }
   }
-  loaded.factory((name) => (name === 'react' ? makeReact([state, null, false, 0, '']) : name === 'react/jsx-runtime' ? { jsx, jsxs } : {})).apply(ctx)
+  loaded.factory((name) => (name === 'react' ? makeReact([state, null, false, 0, '', null, false, false]) : name === 'react/jsx-runtime' ? { jsx, jsxs } : {})).apply(ctx)
+  return registrationLocal()
+}
+
+/** Тот же рендер, но с готовым списком моделей от хоста. */
+const renderWithModels = (state, models) => {
+  let registrationLocal = null
+  const ctx = {
+    slots: {
+      inject: (name, callback) => callback(),
+      register: (spec, component) => {
+        registrationLocal = component
+        return {}
+      }
+    }
+  }
+  loaded.factory((name) => (name === 'react' ? makeReact([state, null, false, 0, '', models, false, false]) : name === 'react/jsx-runtime' ? { jsx, jsxs } : {})).apply(ctx)
   return registrationLocal()
 }
 
@@ -173,19 +197,27 @@ check('отчёт последнего прохода виден', text.includes
 check('многострочный отчёт читается строками', text.includes('Проекты: demo — 7, hrm1 — 5'), text)
 check('источники карточки показаны', text.includes('Диаризация: выбор движка ← #1, #2'), text)
 check('состояние MCP названо явно', text.includes('MCP-сервер') && text.includes('объявлен'), text)
-check('проекты перечислены с числами', text.includes('hrm1') && text.includes('7 из 12 ещё не сведены'), text)
-check('сказано, что очередь берётся из базы', text.includes('Проекты берутся из базы'), text)
-check('цена нажатия показана до нажатия', text.includes('Будет проходов: 3') && text.includes('12 600 токенов на входе'), text)
+check('проекты видны в выборе, с числами', text.includes('hrm1 · 5') && text.includes('demo · 7'), text)
+check('во вкладке нет объяснений и истории решений', !/Проекты берутся из базы|а не из открытых окон|собственных ключей|Последний рабочий каталог|Сырые заметки остаются|оценка по \d+ знака|MCP обязателен|memory-consolidate/u.test(text), text)
+check('цена нажатия показана до нажатия', text.includes('3 прохода · до 20 заметок за проход · ≈12 600 токенов'), text)
 check('вкладка не показывает сводку гигиены: человеку нужны очередь и кнопка, а не термины', text.includes('Гигиена:') === false && text.includes('усвоено выводами') === false, text.slice(0, 300))
-check('предел проходов объяснён', text.includes('остаток обрабатывается следующим нажатием'), text)
-check('рабочий каталог назван', text.includes('Последний рабочий каталог: D:/demo'), text)
-check('выбор одного проекта есть, и по умолчанию — все', selects(tree).length === 1 && texts(selects(tree)[0]).includes('все проекты'), texts(selects(tree)[0]))
-check('в выборе перечислены проекты очереди', texts(selects(tree)[0]).includes('hrm1') && texts(selects(tree)[0]).includes('demo'), texts(selects(tree)[0]))
-check('модель обработки показана', text.includes('ollama / qwen3-30b'), text)
+check('предел проходов назван коротко', text.includes('остаток — следующим нажатием'), text)
+check('выбор проекта есть, и по умолчанию — все', drops(tree).length === 1 && texts(drops(tree)[0]).includes('все проекты · 12'), texts(drops(tree)[0]))
+check('в выборе перечислены проекты очереди', dropItems(tree).some((item) => item.props.children === 'hrm1 · 5') && dropItems(tree).some((item) => item.props.children === 'demo · 7'), texts(tree))
+check('модель обработки показана даже без списка моделей', text.includes('ollama / qwen3-30b'), text)
 check('расхождение бинаря объяснено', text.includes('обновится после перезапуска'), text)
-check('сказано, зачем нужен MCP', text.includes('MCP обязателен'), text)
-check('упомянута команда для тех, кто ей пользуется', text.includes('/memory-consolidate'), text)
+check('когда всё объявлено, предупреждения про MCP нет', text.includes('MCP обязателен') === false && text.includes('объявлен'), text)
 check('кнопка доступна, когда есть что обрабатывать', buttons(tree).every((button) => button.props.disabled !== true))
+
+// ── рендер: служба моделей отдала список ─────────────────────────────────────
+const modelTree = renderWithModels(stateWithWork, [
+  { provider: 'ollama', model: 'qwen3-30b' },
+  { provider: 'zai', model: 'glm-5.3-flash' }
+])
+const modelText = texts(modelTree)
+check('модель можно выбрать на месте', drops(modelTree).length === 2, String(drops(modelTree).length))
+check('выбор модели подписан текущей моделью', modelText.includes('ollama / qwen3-30b'), modelText)
+check('в выборе есть модели из службы', dropItems(modelTree).some((item) => item.props.children === 'zai / glm-5.3-flash'), modelText)
 
 // ── рендер: проход идёт ──────────────────────────────────────────────────────
 const runningTree = renderWith({
@@ -204,13 +236,13 @@ const runningText = texts(runningTree)
 check('во время прохода видно, какой он по счёту и сколько сведено', runningText.includes('проход 2 из 3, сведено 14 из 19'), runningText)
 check('во время прохода есть отмена', buttons(runningTree).some((button) => button.props.children === 'Отменить'), runningText)
 check('кнопка обработки занята и подписана', buttons(runningTree).some((button) => button.props.disabled === true && button.props.children === 'Обрабатываю…'))
-check('выбор проекта во время прохода заблокирован', selects(runningTree)[0].props.disabled === true)
+check('выбор проекта во время прохода заблокирован', drops(runningTree)[0].props.disabled === true)
 
 // ── рендер: всё обработано ───────────────────────────────────────────────────
 const doneTree = renderWith({ ...stateWithWork, notes: { total: 12, processed: 12, unprocessed: 0, cards: 4, bar: 1 }, projects: [], job: { running: false, error: null, report: null, saved: [] } })
 const doneText = texts(doneTree)
 check('при нуле необработанных сказано прямо', doneText.includes('все сведены в выводы'), doneText)
-check('пустая очередь названа пустой', doneText.includes('обрабатывать нечего') && doneText.includes('очередь пуста'), doneText)
+check('выбор проекта остаётся и при пустой очереди', doneText.includes('все проекты · 0'), doneText)
 check('и кнопка заблокирована', buttons(doneTree).some((button) => button.props.disabled === true && button.props.title === 'Все заметки уже сведены в выводы'))
 
 // ── рендер: заметок нет ──────────────────────────────────────────────────────
@@ -226,8 +258,8 @@ const emptyTree = renderWith({
 })
 check('пустая память объяснена', texts(emptyTree).includes('заметок в базе нет'), texts(emptyTree))
 check('необъявленный MCP назван честно', texts(emptyTree).includes('не объявлен'), texts(emptyTree))
-check('про необъявленный MCP есть предупреждение', texts(emptyTree).includes('MCP-сервер не объявлен') && texts(emptyTree).includes('общий слой наполнять нечем'), texts(emptyTree))
-check('если модель не выбрана — сказано прямо', texts(emptyTree).includes('не выбрана — задайте модель по умолчанию'), texts(emptyTree))
+check('про необъявленный MCP есть предупреждение', texts(emptyTree).includes('Без MCP-сервера модель не сможет искать и пополнять память сама'), texts(emptyTree))
+check('если модель не выбрана — сказано прямо', texts(emptyTree).includes('модель не выбрана'), texts(emptyTree))
 check('без несведённых заметок цена не выдумывается', texts(emptyTree).includes('Несведённых заметок нет.'), texts(emptyTree))
 
 // ── рендер: ошибка прохода ───────────────────────────────────────────────────
