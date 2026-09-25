@@ -2,7 +2,9 @@
 // React — заглушками, а дерево разметки разбираем как данные. Так ловятся вещи,
 // которых не видит ни один синтаксический контроль: подписи кнопок, числа в
 // полоске, тексты ошибок и то, что кнопка действительно блокируется.
+import { readFileSync } from 'node:fs'
 let failures = 0
+const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 const check = (title, ok, extra = '') => {
   if (ok) {
     console.log(`  ok ${title}`)
@@ -124,6 +126,14 @@ const dropItems = (tree) => {
   })
   return list
 }
+/** Сами выпадающие списки: у них и смотрим признак «скрыт». */
+const dropLists = (tree) => {
+  const list = []
+  walk(tree, (node) => {
+    if (typeof node.props?.className === 'string' && node.props.className.includes('pem-drop__list')) list.push(node)
+  })
+  return list
+}
 
 // ── рендер: необработанные заметки ───────────────────────────────────────────
 const stateWithWork = {
@@ -171,8 +181,8 @@ const renderWith = (state) => {
   return registrationLocal()
 }
 
-/** Тот же рендер, но с готовым списком моделей от хоста. */
-const renderWithModels = (state, models) => {
+/** Тот же рендер, но с готовым списком моделей от хоста; `open` открывает список проектов. */
+const renderWithModels = (state, models, open = false) => {
   let registrationLocal = null
   const ctx = {
     slots: {
@@ -183,7 +193,7 @@ const renderWithModels = (state, models) => {
       }
     }
   }
-  loaded.factory((name) => (name === 'react' ? makeReact([state, null, false, 0, '', models, false, false]) : name === 'react/jsx-runtime' ? { jsx, jsxs } : {})).apply(ctx)
+  loaded.factory((name) => (name === 'react' ? makeReact([state, null, false, 0, '', models, open, false]) : name === 'react/jsx-runtime' ? { jsx, jsxs } : {})).apply(ctx)
   return registrationLocal()
 }
 
@@ -198,7 +208,10 @@ check('многострочный отчёт читается строками',
 check('источники карточки показаны', text.includes('Диаризация: выбор движка ← #1, #2'), text)
 check('состояние MCP названо явно', text.includes('MCP-сервер') && text.includes('объявлен'), text)
 check('проекты видны в выборе, с числами', text.includes('hrm1 · 5') && text.includes('demo · 7'), text)
-check('во вкладке нет объяснений и истории решений', !/Проекты берутся из базы|а не из открытых окон|собственных ключей|Последний рабочий каталог|Сырые заметки остаются|оценка по \d+ знака|MCP обязателен|memory-consolidate/u.test(text), text)
+check('во вкладке нет объяснений и истории решений', !/Проекты берутся из базы|а не из открытых окон|собственных ключей|Последний рабочий каталог|Сырые заметки остаются|оценка по \d+ знака|MCP обязателен|Бинарь|memory-consolidate/u.test(text), text)
+check('строка версии названа по-человечески', text.includes('Версия Engram'), text)
+check('список проектов закрыт, пока его не открыли', dropLists(tree).length === 1 && dropLists(tree).every((list) => list.props.hidden === true), String(dropLists(tree).length))
+check('закрытый список прячется правилом, а не одним атрибутом', source.includes('.pem-drop__list[hidden] { display: none; }'))
 check('цена нажатия показана до нажатия', text.includes('3 прохода · до 20 заметок за проход · ≈12 600 токенов'), text)
 check('вкладка не показывает сводку гигиены: человеку нужны очередь и кнопка, а не термины', text.includes('Гигиена:') === false && text.includes('усвоено выводами') === false, text.slice(0, 300))
 check('предел проходов назван коротко', text.includes('остаток — следующим нажатием'), text)
@@ -218,6 +231,16 @@ const modelText = texts(modelTree)
 check('модель можно выбрать на месте', drops(modelTree).length === 2, String(drops(modelTree).length))
 check('выбор модели подписан текущей моделью', modelText.includes('ollama / qwen3-30b'), modelText)
 check('в выборе есть модели из службы', dropItems(modelTree).some((item) => item.props.children === 'zai / glm-5.3-flash'), modelText)
+
+// ── рендер: текущая модель не попала в список от службы ──────────────────────
+const outsideTree = renderWithModels(stateWithWork, [{ provider: 'zai', model: 'glm-5.3-flash' }])
+check('модель вне списка всё равно подписана', texts(outsideTree).includes('ollama / qwen3-30b'), texts(outsideTree))
+
+// ── рендер: список проектов открыт ───────────────────────────────────────────
+const openTree = renderWithModels(stateWithWork, [{ provider: 'ollama', model: 'qwen3-30b' }], true)
+check('два списка закрыты, пока их не открыли', dropLists(modelTree).length === 2 && dropLists(modelTree).every((list) => list.props.hidden === true), String(dropLists(modelTree).length))
+check('открытый список показан, соседний остаётся закрытым', dropLists(openTree)[0].props.hidden === false && dropLists(openTree)[1].props.hidden === true, `${dropLists(openTree)[0].props.hidden}/${dropLists(openTree)[1].props.hidden}`)
+check('в выборе отмечен текущий пункт', dropItems(openTree).some((item) => item.props['aria-selected'] === true && item.props.children === 'все проекты · 12'), texts(openTree))
 
 // ── рендер: проход идёт ──────────────────────────────────────────────────────
 const runningTree = renderWith({
