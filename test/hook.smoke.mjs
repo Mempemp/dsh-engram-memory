@@ -46,6 +46,23 @@ function pointAt(dir) {
 }
 
 /**
+ * Ядро DSH не отдаёт службу с контекста, который её не подключил: обращение к
+ * `ctx.llm` без `inject` падает с «cannot get property "llm" without inject».
+ * Проверки повторяют это правило — иначе такая ошибка видна только живьём.
+ */
+const SERVICE_NAMES = ['systemPrompt', 'commands', 'llm', 'webServer', 'workspaceRegistry', 'agentDefaultModel']
+function guarded(target, allowed) {
+  return new Proxy(target, {
+    get(object, property) {
+      if (typeof property === 'string' && SERVICE_NAMES.includes(property) && !allowed.has(property)) {
+        throw new Error(`cannot get property "${property}" without inject`)
+      }
+      return object[property]
+    }
+  })
+}
+
+/**
  * Контекст плагина. `harnessDir` уводим в temp: самодостаточность пакета
  * раскладывает MCP-половину в харнесс, и тесты не должны трогать настоящий.
  */
@@ -87,7 +104,8 @@ function makeContext(config, options = {}) {
     // модель отсюда, а не у последней сессии.
     agentDefaultModel: { currentSelection: () => ({ provider: 'test-provider', model: 'test-model' }) },
     inject: (services, callback) => {
-      if (services.every((service) => ctx[service] !== undefined)) callback(ctx)
+      const missing = services.filter((service) => ctx[service] === undefined)
+      if (missing.length === 0) callback(guarded(ctx, new Set(services)))
     },
     on: (event, handler) => {
       const existing = listeners.get(event)
@@ -99,8 +117,12 @@ function makeContext(config, options = {}) {
   // Службу убираем ДО применения — иначе необязательная подписка уже сработала бы.
   if (options.noDefaultModel === true) delete ctx.agentDefaultModel
   if (options.noWebServer === true) delete ctx.webServer
-  apply(ctx, { harnessDir: join(root, 'harness'), ...config })
+  // Обращения к службам идут так же, как в ядре: что объявлено в `inject`
+  // плагина — доступно, остальное только через `ctx.inject`.
+  const outer = guarded(ctx, new Set(inject))
+  apply(outer, { harnessDir: join(root, 'harness'), ...config })
   const context = {
+    raw: outer,
     preStep: listeners.get('agent/pre-step')?.[0],
     fire: (event, ...args) => (listeners.get(event) ?? []).forEach((handler) => handler(...args)),
     dispose: listeners.get('dispose')?.[0],
@@ -344,6 +366,14 @@ check('обычная запись показывается как раньше'
 
 console.log('\n== правила памяти доезжают до модели ==')
 check('плагин требует службу промпта (иначе ctx.systemPrompt молча нет)', inject.includes('systemPrompt'), JSON.stringify(inject))
+check('в проверках контекст такой же строгий, как в ядре', (() => {
+  try {
+    makeContext({}).raw.llm
+    return false
+  } catch (error) {
+    return String(error.message).includes('without inject')
+  }
+})(), 'службу достали с голого контекста')
 const guided = makeContext({})
 const guidance = guided.sections.find((spec) => typeof spec.text === 'string' && spec.text.includes('Память (engram)'))
 check('секция промпта зарегистрирована', guidance !== undefined)
@@ -482,6 +512,10 @@ console.log('\n== кнопка «Обработать заметки» ==')
   check('без модели команда просит задать её в настройках', noModel?.kind === 'error' && String(noModel.text).includes('модель по умолчанию'), JSON.stringify(noModel))
   const nowhere = await command.handler({ rawInput: 'черновик нет-заметок', agent: {}, signal: undefined })
   check('без несведённых заметок команда модель не зовёт', nowhere?.kind === 'success' && String(nowhere.text).includes('несведённых заметок нет'), JSON.stringify(nowhere))
+  // Проход доходит до службы модели. Здесь ловится ядровая строгость: с голого
+  // контекста службу не достать, и ошибка была бы «cannot get property "llm" without inject».
+  const reachesModel = await command.handler({ rawInput: 'demo', agent: {}, signal: undefined })
+  check('проход дозвонился до службы модели, а не упал на её получении', String(reachesModel?.text ?? '').includes('without inject') === false, JSON.stringify(reachesModel))
   const silent = makeContext({ consolidate: false })
   check('обработка выключается настройкой, гигиена остаётся', silent.commands.length === 2 && silent.commands.every((item) => item.name !== 'memory-consolidate'), `объявлено ${silent.commands.length}`)
 }
