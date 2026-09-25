@@ -210,6 +210,7 @@ check('состояние MCP названо явно', text.includes('MCP-се�
 check('проекты видны в выборе, с числами', text.includes('hrm1 · 5') && text.includes('demo · 7'), text)
 check('во вкладке нет объяснений и истории решений', !/Проекты берутся из базы|а не из открытых окон|собственных ключей|Последний рабочий каталог|Сырые заметки остаются|оценка по \d+ знака|MCP обязателен|Бинарь|memory-consolidate/u.test(text), text)
 check('строка версии названа по-человечески', text.includes('Версия Engram'), text)
+check('у обоих полей есть подписи', texts(tree).includes('Проект') && texts(tree).includes('Модель'), text)
 check('список проектов закрыт, пока его не открыли', dropLists(tree).length === 1 && dropLists(tree).every((list) => list.props.hidden === true), String(dropLists(tree).length))
 check('закрытый список прячется правилом, а не одним атрибутом', source.includes('.pem-drop__list[hidden] { display: none; }'))
 check('цена нажатия показана до нажатия', text.includes('3 прохода · до 20 заметок за проход · ≈12 600 токенов'), text)
@@ -282,7 +283,7 @@ const emptyTree = renderWith({
 check('пустая память объяснена', texts(emptyTree).includes('заметок в базе нет'), texts(emptyTree))
 check('необъявленный MCP назван честно', texts(emptyTree).includes('не объявлен'), texts(emptyTree))
 check('про необъявленный MCP есть предупреждение', texts(emptyTree).includes('Без MCP-сервера модель не сможет искать и пополнять память сама'), texts(emptyTree))
-check('если модель не выбрана — сказано прямо', texts(emptyTree).includes('модель не выбрана'), texts(emptyTree))
+check('если модель не выбрана — сказано прямо', texts(emptyTree).includes('не выбрана'), texts(emptyTree))
 check('без несведённых заметок цена не выдумывается', texts(emptyTree).includes('Несведённых заметок нет.'), texts(emptyTree))
 
 // ── рендер: ошибка прохода ───────────────────────────────────────────────────
