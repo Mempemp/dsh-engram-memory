@@ -80,9 +80,16 @@ check('конфиг читается первым существующим пу�
 check('конфига нет — пустой объект', JSON.stringify(shim.readConfig([join(root, 'нет-такого.json')])) === '{}')
 
 console.log('\n== объявление сервера ==')
+const managerStore = (base) => join(base, '@wingsky-1', 'dsh-mcp-manager', 'mcp.json')
+const legacyStore = (base) => join(base, 'dsh-mcp.json')
+const withManager = (base, version) => {
+  const dir = join(base, 'profiles', 'node_modules', '@wingsky-1', 'dsh-mcp-manager')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: '@wingsky-1/dsh-mcp-manager', version }))
+}
 const shimPath = join(packageDir, 'bin', 'engram-mcp.js')
 check('сервер объявлен', ensureMcpServer(harness, { nodePath: 'C:/node/node.exe', shimPath }).action === 'added')
-const configPath = join(harness, 'dsh-mcp.json')
+const configPath = managerStore(harness)
 const config = JSON.parse(readFileSync(configPath, 'utf8'))
 const entry = config.servers[0]
 check(
@@ -90,6 +97,7 @@ check(
   entry.name === 'engram' && entry.transport === 'stdio' && entry.command === 'C:/node/node.exe' && entry.args[0] === shimPath && entry.enabled === true,
   JSON.stringify(entry)
 )
+check('запись легла туда, где её читает менеджер 0.2.5+', existsSync(configPath) && !existsSync(legacyStore(harness)))
 const before = readFileSync(configPath, 'utf8')
 check('повтор ничего не меняет', ensureMcpServer(harness, { nodePath: 'другой', shimPath: 'другой' }).action === 'present' && readFileSync(configPath, 'utf8') === before)
 
@@ -103,9 +111,33 @@ check('и в ней не появилось наших путей', !readFileSyn
 
 writeFileSync(configPath, JSON.stringify({ version: 1, servers: [{ name: 'rlm', transport: 'streamable-http', url: 'http://127.0.0.1:9330/mcp' }] }, null, 2))
 check('к чужому конфигу сервер добавляется', ensureMcpServer(harness, { nodePath: 'n', shimPath: 's' }).action === 'added')
-check('бэкап конфига сделан', readdirSync(harness).some((file) => file.startsWith('dsh-mcp.json.bak-')), readdirSync(harness).join(', '))
+check('бэкап конфига сделан', readdirSync(join(harness, '@wingsky-1', 'dsh-mcp-manager')).some((file) => file.startsWith('mcp.json.bak-')), readdirSync(join(harness, '@wingsky-1', 'dsh-mcp-manager')).join(', '))
 const merged = JSON.parse(readFileSync(configPath, 'utf8'))
 check('чужой сервер на месте', merged.servers.length === 2 && merged.servers[0].name === 'rlm' && merged.servers[1].name === 'engram')
+
+console.log('\n== раскладка хранилища менеджера ==')
+const legacyHarness = join(root, 'harness-legacy')
+mkdirSync(legacyHarness, { recursive: true })
+writeFileSync(legacyStore(legacyHarness), JSON.stringify({ version: 1, servers: [{ name: 'чужой', transport: 'stdio', command: 'x' }] }, null, 2))
+check('файл-предшественник на диске: пишем в него', ensureMcpServer(legacyHarness, { nodePath: 'n', shimPath: 's' }).action === 'added' && readFileSync(legacyStore(legacyHarness), 'utf8').includes('engram') && !existsSync(managerStore(legacyHarness)))
+check('чужая запись в нём сохранена', JSON.parse(readFileSync(legacyStore(legacyHarness), 'utf8')).servers.some((item) => item.name === 'чужой'))
+
+const movedHarness = join(root, 'harness-moved')
+mkdirSync(join(movedHarness, '@wingsky-1', 'dsh-mcp-manager'), { recursive: true })
+writeFileSync(managerStore(movedHarness), JSON.stringify({ version: 1, servers: [] }, null, 2))
+writeFileSync(legacyStore(movedHarness), JSON.stringify({ version: 1, servers: [{ name: 'остаток', transport: 'stdio', command: 'x' }] }, null, 2))
+check('менеджер уже перенёс список: пишем в его файл', ensureMcpServer(movedHarness, { nodePath: 'n', shimPath: 's' }).action === 'added' && readFileSync(managerStore(movedHarness), 'utf8').includes('engram'))
+check('файл-предшественник не тронут', readFileSync(legacyStore(movedHarness), 'utf8').includes('остаток'))
+
+const oldManagerHarness = join(root, 'harness-old-manager')
+mkdirSync(oldManagerHarness, { recursive: true })
+withManager(oldManagerHarness, '0.2.4')
+check('менеджер 0.2.4: пишем в файл, который он читает', ensureMcpServer(oldManagerHarness, { nodePath: 'n', shimPath: 's' }).action === 'added' && readFileSync(legacyStore(oldManagerHarness), 'utf8').includes('engram') && !existsSync(managerStore(oldManagerHarness)))
+
+const newManagerHarness = join(root, 'harness-new-manager')
+mkdirSync(newManagerHarness, { recursive: true })
+withManager(newManagerHarness, '0.2.7')
+check('менеджер 0.2.7 без своей папки: пишем в новую раскладку', ensureMcpServer(newManagerHarness, { nodePath: 'n', shimPath: 's' }).action === 'added' && readFileSync(managerStore(newManagerHarness), 'utf8').includes('engram') && !existsSync(legacyStore(newManagerHarness)))
 
 console.log('\n== выключатели и поиск каталогов ==')
 check('registerMcp: false — тихий отказ', setupMcp({ registerMcp: false }, { pluginDir: plugin }).action === 'disabled')
