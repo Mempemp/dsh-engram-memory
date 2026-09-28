@@ -295,6 +295,17 @@ const errorTree = renderWith({ ...stateWithWork, job: { running: false, error: '
 const errorText = texts(errorTree)
 check('ошибка показана там, где нажимали', errorText.includes('Обработать заметки не удалось') && errorText.includes('провайдер недоступен'), errorText)
 
+// ── рендер: сервер объявлен, но не поднялся ──────────────────────────────────
+// «Запись в списке есть» и «сервер отвечает» — разные вещи: живое состояние
+// важнее объявления, иначе причина отказа ищется не там.
+const downTree = renderWith({ ...stateWithWork, mcp: { declared: true, status: 'failed', tools: 0, error: 'spawn C:\\Program Files\\DSH Desktop\\node.exe ENOENT' } })
+const downText = texts(downTree)
+check('объявленный, но упавший сервер не назван подключённым', downText.includes('не подключился') && !downText.includes('инстр.'), downText)
+check('причина отказа показана', downText.includes('ENOENT'), downText)
+
+const liveTree = renderWith({ ...stateWithWork, mcp: { declared: true, status: 'connected', tools: 9, error: null } })
+check('работающий сервер показан с числом инструментов', texts(liveTree).includes('подключён · 9 инстр.'), texts(liveTree))
+
 // ── разметка: полоска считает проценты от 0 до 100 ───────────────────────────
 const overTree = renderWith({ ...stateWithWork, notes: { total: 3, processed: 9, unprocessed: 0, cards: 1, bar: 3 } })
 check('полоска не выходит за 100%', barWidth(overTree) === '100.0%', String(barWidth(overTree)))

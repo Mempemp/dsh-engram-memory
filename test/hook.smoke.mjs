@@ -104,6 +104,18 @@ function makeContext(config, options = {}) {
     // Модель по умолчанию — тот же выбор, что в разделе «Модели»: вкладка берёт
     // модель отсюда, а не у последней сессии.
     agentDefaultModel: { currentSelection: () => ({ provider: 'test-provider', model: 'test-model' }) },
+    // Менеджер MCP — необязательный источник правды о живой связи с сервером.
+    // Заглушка повторяет его отчёт: состояние, инструменты, причина отказа.
+    mcpManager: {
+      getStatus: (serverName) =>
+        serverName === 'engram'
+          ? {
+              status: options.mcpStatus ?? 'connected',
+              tools: options.mcpTools ?? [{ name: 'mem_save' }],
+              error: options.mcpError ?? ''
+            }
+          : undefined
+    },
     inject: (services, callback) => {
       const missing = services.filter((service) => ctx[service] === undefined)
       if (missing.length === 0) callback(guarded(ctx, new Set(services)))
@@ -174,7 +186,10 @@ check('снимок записан при первом же ходу', readCurre
 check('снимок лежит в LocalAppData', currentProjectFile() === join(root, 'localappdata', 'DSH-1C', 'engram-current-project.json'), String(currentProjectFile()))
 const snapshot = existsSync(currentProjectFile()) ? readFileSync(currentProjectFile(), 'utf8') : ''
 check('в снимке назван рабочий каталог', snapshot !== '' && JSON.parse(snapshot).workspace === workspace, snapshot.slice(0, 140))
-check('это сообщение плагина', injected.messages[0].source?.plugin === 'dsh-engram-memory', JSON.stringify(injected.messages[0].source))
+// Формат сессий v4 отвергает отменённую пару `{ kind: 'plugin', plugin: … }`:
+// вид источника обязан называть производителя, иначе запись хода падает.
+check('вид источника называет производителя', injected.messages[0].source?.kind === 'plugin:dsh-engram-memory', JSON.stringify(injected.messages[0].source))
+check('отменённой пары в источнике нет', injected.messages[0].source?.plugin === undefined, JSON.stringify(injected.messages[0].source))
 check('роль — user', injected.messages[0].role === 'user')
 const text = injected.messages[0].content[0].text
 check('в инъекции нашлась запись про диаризацию', text.includes('Диаризация'), text.slice(0, 120))
@@ -188,7 +203,7 @@ const otherSession = await call(preStep, payloadFor({ ...header, id: 'session-2'
 check('новая сессия получает память снова', otherSession.messages.length === 2, String(otherSession.messages.length))
 const subagent = await call(preStep, payloadFor({ ...header, id: 'session-3', origin: 'subagent' }), { kind: 'enter', messages: [userMessage('как ускорить диаризацию?')] })
 check('субагент память не получает', subagent.messages.length === 1)
-const noUser = await call(preStep, payloadFor(header), { kind: 'enter', messages: [{ source: { kind: 'plugin' }, content: [{ type: 'text', text: 'диаризация' }] }] })
+const noUser = await call(preStep, payloadFor(header), { kind: 'enter', messages: [{ source: { kind: 'plugin:dsh-better-sidebar' }, content: [{ type: 'text', text: 'диаризация' }] }] })
 check('без реплики пользователя запроса нет', noUser.messages.length === 1)
 const empty = await call(preStep, payloadFor(header), { kind: 'enter', messages: [userMessage('и в на')] })
 check('запрос из одних стоп-слов ничего не даёт', empty.messages.length === 1)
@@ -554,6 +569,7 @@ console.log('\n== вкладка настроек ==')
   check('проекты вкладки приходят из базы', /"projects":\[\{"project":"demo"/.test(state), state.slice(-260))
   check('необработанные заметки посчитаны по базе', state.includes('"total":2') && state.includes('"unprocessed":2'), state.slice(-240))
   check('состояние MCP в ответе есть', state.includes('"declared"'), state.slice(-120))
+  check('живая связь важнее объявления', state.includes('"status":"connected"') && state.includes('"tools":1'), state.slice(-300))
   check('модель обработки взята из настроек, а не из сессии', state.includes('"provider":"test-provider"') && state.includes('"model":"test-model"'), state.slice(-300))
   check('цена нажатия посчитана до нажатия', state.includes('"estimate"') && state.includes('"perPassNotes":2'), state.slice(-260))
   check('предел проходов отдан интерфейсу', state.includes('"maxPasses":3'), state.slice(-160))
@@ -566,6 +582,30 @@ console.log('\n== вкладка настроек ==')
   check('выбор модели по GET отвергается', onModelGet.startsWith('405'), onModelGet)
   const onModelEmpty = await ask('/model', 'POST')
   check('выбор модели без provider и model отвергается', onModelEmpty.startsWith('400') && onModelEmpty.includes('provider'), onModelEmpty)
+}
+
+console.log('\n== сервер MCP не поднялся ==')
+{
+  pointAt(workspace)
+  const broken = makeContext({}, { mcpStatus: 'failed', mcpTools: [], mcpError: 'spawn C:\\Program Files\\DSH Desktop\\node.exe ENOENT' })
+  const ask = async (suffix) =>
+    new Promise((resolve) => {
+      const chunks = []
+      const res = {
+        writeHead: (code, headers) => chunks.push(String(code), String(headers?.['content-type'] ?? '')),
+        end: (text) => {
+          chunks.push(text)
+          resolve(chunks.join('|'))
+        }
+      }
+      broken.routes.find((route) => route.path.endsWith(suffix)).handler({ url: `/engram-memory${suffix}`, method: 'GET' }, res)
+    })
+  const state = await ask('/state')
+  // «Запись в списке есть» и «сервер отвечает» — разные вещи: вкладка показывает
+  // связь, иначе причина отказа видна только в чужом разделе настроек.
+  check('отказ сервера виден состоянием', state.includes('"status":"failed"'), state.slice(-300))
+  check('причина отказа доходит до вкладки', state.includes('ENOENT'), state.slice(-300))
+  check('инструментов у упавшего сервера нет', state.includes('"tools":0'), state.slice(-300))
 }
 
 console.log('\n== освобождение стора ==')

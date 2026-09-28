@@ -2,7 +2,7 @@
 // харнесс и сам объявляет сервер — один раз, ничего не переписывая у человека.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { currentProjectFile, ensureMcpPackage, ensureMcpServer, harnessDir, mcpVersion, readCurrentProject, resolveNode, setupMcp, writeCurrentProject } from '../lib/mcp-setup.js'
 
 let failed = 0
@@ -109,6 +109,27 @@ const mine = readFileSync(configPath, 'utf8')
 check('настройка человека не переписывается', ensureMcpServer(harness, { nodePath: 'чужой', shimPath: 'чужой' }).action === 'present' && readFileSync(configPath, 'utf8') === mine)
 check('и в ней не появилось наших путей', !readFileSync(configPath, 'utf8').includes('чужой'))
 
+// Запись, оставшаяся от прежней установки: узел лежал внутри app.asar, файла по
+// этому пути больше нет — сервер не поднимался, а в списке он «есть». Запуск
+// чиним, остальные поля записи (выключенность, свой профиль инструментов) — нет.
+const realNode = join(root, 'node.exe')
+const realShim = join(root, 'shim.js')
+writeFileSync(realNode, 'fake-node')
+writeFileSync(realShim, 'fake-shim')
+writeFileSync(
+  configPath,
+  JSON.stringify({ version: 1, servers: [{ name: 'engram', transport: 'stdio', command: 'C:/DSH Desktop/resources/app/node_modules/node/bin/node.exe', args: ['C:/old/shim.js'], enabled: false, env: { ENGRAM_TOOLS: 'agent' } }] }, null, 2)
+)
+const repaired = ensureMcpServer(harness, { nodePath: realNode, shimPath: realShim })
+const fixed = JSON.parse(readFileSync(configPath, 'utf8')).servers[0]
+check('протухший путь запуска починен', repaired.action === 'repaired' && fixed.command === realNode && fixed.args[0] === realShim, JSON.stringify(repaired))
+check('остальные поля записи сохранены', fixed.enabled === false && fixed.env?.ENGRAM_TOOLS === 'agent', JSON.stringify(fixed))
+check('после починки запись считается рабочей', ensureMcpServer(harness, { nodePath: realNode, shimPath: realShim }).action === 'present')
+
+writeFileSync(configPath, JSON.stringify({ version: 1, servers: [{ name: 'engram', transport: 'stdio', command: 'C:/нет/узла.exe', args: ['C:/нет/шим.js'], enabled: true }] }, null, 2))
+const untouched = readFileSync(configPath, 'utf8')
+check('без рабочей замены запись не трогается', ensureMcpServer(harness, { nodePath: 'чужой', shimPath: 'чужой' }).action === 'present' && readFileSync(configPath, 'utf8') === untouched)
+
 writeFileSync(configPath, JSON.stringify({ version: 1, servers: [{ name: 'rlm', transport: 'streamable-http', url: 'http://127.0.0.1:9330/mcp' }] }, null, 2))
 check('к чужому конфигу сервер добавляется', ensureMcpServer(harness, { nodePath: 'n', shimPath: 's' }).action === 'added')
 check('бэкап конфига сделан', readdirSync(join(harness, '@wingsky-1', 'dsh-mcp-manager')).some((file) => file.startsWith('mcp.json.bak-')), readdirSync(join(harness, '@wingsky-1', 'dsh-mcp-manager')).join(', '))
@@ -147,6 +168,24 @@ check('DSH_HOME важнее APPDATA', harnessDir({}, { DSH_HOME: 'D:/harness', 
 check('настройка важнее всего', harnessDir({ harnessDir: 'D:/mine' }, { DSH_HOME: 'D:/harness' }) === 'D:/mine')
 check('узел берётся из своей установки', resolveNode({}, { execPath: 'C:/dsh/node.exe' }) === 'C:/dsh/node.exe')
 check('узел можно задать настройкой', resolveNode({ nodePath: 'C:/custom/node.exe' }, { execPath: 'C:/DSH Desktop.exe' }) === 'C:/custom/node.exe')
+
+// Раскладка установки десктопа: с 0.10.0 узел лежит в app.asar.unpacked, прежний
+// путь внутрь архива ведёт в пустоту (по нему MCP-сервер не запускался).
+const packedRoot = join(root, 'desktop-packed')
+const packedExe = join(packedRoot, 'DSH Desktop.exe')
+const packedNode = join(packedRoot, 'resources', 'app.asar.unpacked', 'node_modules', 'node', 'bin', 'node.exe')
+mkdirSync(dirname(packedNode), { recursive: true })
+writeFileSync(packedExe, 'x')
+writeFileSync(packedNode, 'x')
+check('узел берётся из app.asar.unpacked', resolveNode({}, { execPath: packedExe }) === packedNode, String(resolveNode({}, { execPath: packedExe })))
+const oldRoot = join(root, 'desktop-old')
+const oldExe = join(oldRoot, 'DSH Desktop.exe')
+const oldNode = join(oldRoot, 'resources', 'app', 'node_modules', 'node', 'bin', 'node.exe')
+mkdirSync(dirname(oldNode), { recursive: true })
+writeFileSync(oldExe, 'x')
+writeFileSync(oldNode, 'x')
+check('прежняя установка без asar работает по-старому', resolveNode({}, { execPath: oldExe }) === oldNode, String(resolveNode({}, { execPath: oldExe })))
+check('ничего не нашлось — общий node из PATH', resolveNode({}, { execPath: join(root, 'desktop-empty', 'DSH Desktop.exe') }) === 'node')
 
 console.log('\n== полный проход ==')
 const freshHarness = join(root, 'harness-full')
